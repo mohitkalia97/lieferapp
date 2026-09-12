@@ -1,70 +1,114 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#111111" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
   <title>LieferRoute</title>
 </head>
 <body>
-  <main class="app">
-    <header>
-      <div>
-        <h1>LieferRoute</h1>
-        <div class="subtitle">Waze + Kunden-Suche</div>
+<main class="app">
+  <header>
+    <div>
+      <h1>LieferRoute</h1>
+      <div class="subtitle">Waze + Kunden-Suche</div>
+    </div>
+    <span id="status">Keine Tour</span>
+  </header>
+
+  <section id="home" class="card">
+    <h2>Was möchtest du machen?</h2>
+    <button id="openImport" class="primary">📄 Tourenliste importieren</button>
+    <button id="openManual" class="secondary">✍️ Tour manuell anlegen</button>
+  </section>
+
+  <section id="importScreen" class="card hidden">
+    <div class="screenTitle">
+      <button class="backIcon" data-home>‹</button>
+      <h2>Liste importieren</h2>
+    </div>
+
+    <p class="hint">
+      PDF, Foto, TXT oder CSV auswählen. Bei eingescannten PDFs wird die Liste direkt
+      auf deinem Gerät per OCR gelesen.
+    </p>
+
+    <label class="filePicker">
+      <span>Datei auswählen</span>
+      <input id="importFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt,.csv,application/pdf,image/*,text/plain,text/csv">
+    </label>
+
+    <div id="importFileName" class="fileName">Noch keine Datei ausgewählt</div>
+
+    <button id="runImport" class="primary">Liste einlesen</button>
+
+    <div id="importProgressWrap" class="hidden">
+      <div class="progressText" id="importProgressText">Vorbereitung…</div>
+      <progress id="importProgress" max="100" value="0"></progress>
+    </div>
+
+    <div id="importResult" class="hidden">
+      <div class="resultHeader">
+        <h3>Erkannte Stopps</h3>
+        <span id="detectedCount"></span>
       </div>
-      <span id="status">Keine Tour</span>
-    </header>
+      <p class="hint small">Bitte kurz kontrollieren. OCR kann bei schlechten Scans einzelne Zeichen falsch erkennen.</p>
+      <div id="importStops" class="stop-list"></div>
+      <button id="startImported" class="primary">Mit diesen Stopps Tour starten</button>
+      <button id="clearImport" class="secondary">Import verwerfen</button>
+    </div>
+  </section>
 
-    <section id="setup" class="card">
-      <h2>Neue Tour</h2>
-      <p class="hint">Du kannst Stopps einzeln anlegen oder später eine fertige Kundenliste importieren.</p>
+  <section id="manualScreen" class="card hidden">
+    <div class="screenTitle">
+      <button class="backIcon" data-home>‹</button>
+      <h2>Manuelle Tour</h2>
+    </div>
 
-      <div class="input-group">
-        <label>Kundenname / Firma</label>
-        <input id="customerName" placeholder="z. B. Friseur Milano" />
-      </div>
+    <div class="input-group">
+      <label>Kundenname / Firma</label>
+      <input id="customerName" placeholder="z. B. Friseur Milano">
+    </div>
+    <div class="input-group">
+      <label>Adresse</label>
+      <input id="streetAddress" placeholder="z. B. Rennbahnweg 25">
+    </div>
+    <div class="input-group">
+      <label>Postleitzahl / Ort</label>
+      <input id="postalCity" placeholder="z. B. 1220 Wien">
+    </div>
 
-      <div class="input-group">
-        <label>Adresse</label>
-        <input id="streetAddress" placeholder="z. B. Rennbahnweg 25" />
-      </div>
+    <button id="addStop" class="secondary">+ Stopp hinzufügen</button>
+    <div id="manualStops" class="stop-list"></div>
+    <button id="startManual" class="primary">Tour starten</button>
+  </section>
 
-      <div class="input-group">
-        <label>Postleitzahl / Ort</label>
-        <input id="postalCity" placeholder="z. B. 1220 Wien" />
-      </div>
+  <section id="route" class="card hidden">
+    <div class="progress">
+      <span id="counter"></span>
+      <progress id="routeProgress" max="100"></progress>
+    </div>
 
-      <button id="addStop" class="secondary">+ Stopp hinzufügen</button>
-      <div id="stopList" class="stop-list"></div>
-      <button id="start" class="primary">Tour starten</button>
-    </section>
+    <div class="customer" id="customer"></div>
+    <div class="address" id="address"></div>
 
-    <section id="route" class="card hidden">
-      <div class="progress">
-        <span id="counter"></span>
-        <progress id="progress" max="100"></progress>
-      </div>
+    <button id="waze" class="primary">In Waze navigieren</button>
+    <button id="google" class="google">Kunde in Google Maps suchen</button>
+    <button id="done" class="done">✓ Erledigt & Weiter</button>
 
-      <div class="customer" id="customer"></div>
-      <div class="address" id="address"></div>
+    <div class="row">
+      <button id="back" class="secondary">← Zurück</button>
+      <button id="skip" class="secondary">Überspringen</button>
+    </div>
+    <button id="reset" class="danger">Tour beenden / löschen</button>
+  </section>
+</main>
 
-      <button id="waze" class="primary">In Waze navigieren</button>
-      <button id="google" class="secondary">Kunde in Google Maps suchen</button>
-      <button id="done">✓ Erledigt & Weiter</button>
-
-      <div class="row">
-        <button id="back" class="secondary">← Zurück</button>
-        <button id="skip" class="secondary">Überspringen</button>
-      </div>
-
-      <button id="reset" class="danger">Tour löschen</button>
-    </section>
-  </main>
-
-  <script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

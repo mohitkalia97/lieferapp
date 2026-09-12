@@ -1,14 +1,27 @@
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f4f4;color:#111}
-.app{max-width:620px;margin:auto;padding:calc(18px + env(safe-area-inset-top)) 16px 34px}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f3f3;color:#111}
+.app{max-width:650px;margin:auto;padding:calc(18px + env(safe-area-inset-top)) 16px 36px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-header h1{font-size:25px;margin:0}.subtitle{font-size:13px;color:#777;margin-top:3px}#status{font-size:14px;color:#666}
-.card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 3px 18px #00000010}.hidden{display:none}h2{margin-top:0}
-.hint{color:#666;line-height:1.4}.input-group{margin:14px 0}label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
-input{width:100%;border:1px solid #ccc;border-radius:12px;padding:14px;font-size:16px}
+h1{font-size:25px;margin:0}.subtitle{font-size:13px;color:#777;margin-top:3px}#status{font-size:14px;color:#666}
+.card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 3px 18px #00000010}.hidden{display:none}
+h2{margin:0 0 14px}.hint{color:#666;line-height:1.45}.small{font-size:13px}.screenTitle{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.screenTitle h2{margin:0}.backIcon{width:42px;height:42px;padding:0;margin:0;border-radius:50%;font-size:30px;line-height:1;background:#eee}
+.input-group{margin:14px 0}label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
+input{width:100%;border:1px solid #ccc;border-radius:12px;padding:14px;font-size:16px;background:white}
 button{width:100%;border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:700;margin:6px 0;background:#e8e8e8}
-.primary{background:#111;color:#fff}.secondary{background:#ededed}.danger{color:#b00020}.row{display:flex;gap:8px;margin-top:8px}.row button{font-size:14px}
-.progress{margin-bottom:20px}progress{width:100%;height:10px;margin-top:8px}.customer{font-size:30px;font-weight:800;line-height:1.1;margin-top:12px}
-.address{font-size:18px;color:#555;line-height:1.35;margin:10px 0 24px;min-height:48px}button:disabled{opacity:.4}
-.stop-list{margin:12px 0 18px}.draft-stop{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px;border:1px solid #e1e1e1;border-radius:12px;margin:8px 0}
-.draft-stop div div{font-size:13px;color:#666;margin-top:3px}.mini{width:auto;padding:9px 10px;font-size:12px;margin:0}
+.primary{background:#111;color:#fff}.secondary{background:#ededed}.google{background:#e9eefb}.done{background:#dfeee1}.danger{color:#b00020}
+.row{display:flex;gap:8px;margin-top:8px}.row button{font-size:14px}
+.progress{margin-bottom:20px}progress{width:100%;height:10px;margin-top:8px}
+.customer{font-size:29px;font-weight:800;line-height:1.12;margin-top:12px}
+.address{font-size:18px;color:#555;line-height:1.35;margin:10px 0 24px;min-height:48px}
+button:disabled{opacity:.4}
+.filePicker{display:block;border:2px dashed #bbb;border-radius:16px;padding:24px;text-align:center;margin:16px 0 8px;cursor:pointer;background:#fafafa}
+.filePicker span{font-size:17px;font-weight:700}.filePicker input{display:none}.fileName{font-size:13px;color:#666;margin-bottom:12px;word-break:break-all}
+.progressText{font-size:14px;font-weight:700;margin-top:14px}
+.resultHeader{display:flex;justify-content:space-between;align-items:center;margin-top:18px}.resultHeader h3{margin:0}.resultHeader span{font-size:13px;color:#666}
+.stop-list{margin:12px 0 18px;max-height:55vh;overflow:auto}
+.draft-stop{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px;border:1px solid #e1e1e1;border-radius:12px;margin:8px 0}
+.stopText{min-width:0}.stopText small{display:block;color:#666;margin-top:4px}
+.import-stop{display:grid;grid-template-columns:28px 1fr 34px;gap:8px;align-items:start;padding:10px 0;border-bottom:1px solid #eee}
+.stopNumber{font-size:12px;font-weight:800;background:#111;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-top:8px}
+.editFields{display:grid;gap:6px}.editFields input{padding:10px;font-size:14px}.mini{width:34px;height:34px;padding:0;font-size:18px;margin:7px 0 0}
