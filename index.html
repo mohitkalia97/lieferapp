@@ -6,30 +6,65 @@
   <meta name="theme-color" content="#111111" />
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css"><title>LieferRoute</title>
+  <link rel="stylesheet" href="style.css">
+  <title>LieferRoute</title>
 </head>
 <body>
   <main class="app">
-    <header><h1>LieferRoute</h1><span id="status">Keine Tour</span></header>
+    <header>
+      <div>
+        <h1>LieferRoute</h1>
+        <div class="subtitle">Waze + Kunden-Suche</div>
+      </div>
+      <span id="status">Keine Tour</span>
+    </header>
 
     <section id="setup" class="card">
       <h2>Neue Tour</h2>
-      <p>Eine Adresse pro Zeile – die Reihenfolge bleibt genau so erhalten.</p>
-      <textarea id="addresses" placeholder="Rennbahnweg 25, 1220 Wien&#10;Wagramer Straße 10, 1220 Wien"></textarea>
-      <button id="start">Tour starten</button>
+      <p class="hint">Du kannst Stopps einzeln anlegen oder später eine fertige Kundenliste importieren.</p>
+
+      <div class="input-group">
+        <label>Kundenname / Firma</label>
+        <input id="customerName" placeholder="z. B. Friseur Milano" />
+      </div>
+
+      <div class="input-group">
+        <label>Adresse</label>
+        <input id="streetAddress" placeholder="z. B. Rennbahnweg 25" />
+      </div>
+
+      <div class="input-group">
+        <label>Postleitzahl / Ort</label>
+        <input id="postalCity" placeholder="z. B. 1220 Wien" />
+      </div>
+
+      <button id="addStop" class="secondary">+ Stopp hinzufügen</button>
+      <div id="stopList" class="stop-list"></div>
+      <button id="start" class="primary">Tour starten</button>
     </section>
 
     <section id="route" class="card hidden">
-      <div class="progress"><span id="counter"></span><progress id="progress" max="100"></progress></div>
-      <h2 id="address"></h2>
-      <button id="nav" class="primary">Navigation starten</button>
+      <div class="progress">
+        <span id="counter"></span>
+        <progress id="progress" max="100"></progress>
+      </div>
+
+      <div class="customer" id="customer"></div>
+      <div class="address" id="address"></div>
+
+      <button id="waze" class="primary">In Waze navigieren</button>
+      <button id="google" class="secondary">Kunde in Google Maps suchen</button>
       <button id="done">✓ Erledigt & Weiter</button>
+
       <div class="row">
         <button id="back" class="secondary">← Zurück</button>
-        <button id="reset" class="danger">Tour löschen</button>
+        <button id="skip" class="secondary">Überspringen</button>
       </div>
+
+      <button id="reset" class="danger">Tour löschen</button>
     </section>
   </main>
+
   <script src="app.js"></script>
 </body>
 </html>
