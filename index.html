@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css"><title>LieferRoute</title>
+</head>
+<body>
+  <main class="app">
+    <header><h1>LieferRoute</h1><span id="status">Keine Tour</span></header>
+
+    <section id="setup" class="card">
+      <h2>Neue Tour</h2>
+      <p>Eine Adresse pro Zeile – die Reihenfolge bleibt genau so erhalten.</p>
+      <textarea id="addresses" placeholder="Rennbahnweg 25, 1220 Wien&#10;Wagramer Straße 10, 1220 Wien"></textarea>
+      <button id="start">Tour starten</button>
+    </section>
+
+    <section id="route" class="card hidden">
+      <div class="progress"><span id="counter"></span><progress id="progress" max="100"></progress></div>
+      <h2 id="address"></h2>
+      <button id="nav" class="primary">Navigation starten</button>
+      <button id="done">✓ Erledigt & Weiter</button>
+      <div class="row">
+        <button id="back" class="secondary">← Zurück</button>
+        <button id="reset" class="danger">Tour löschen</button>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
