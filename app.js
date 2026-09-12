@@ -227,97 +227,168 @@ async function ocrPdf(file){
 }
 
 function cleanLine(s){
-  return s.replace(/\s+/g,' ').replace(/[|]+/g,' ').trim();
+  return s
+    .replace(/[|]+/g,' ')
+    .replace(/\s+/g,' ')
+    .replace(/[–—]/g,'-')
+    .trim();
 }
+
+function isHeaderOrNoise(line){
+  const s=(line||'').toLowerCase();
+  return !s ||
+    /tourenliste|morawa lesezirkel|hackinger|liefertag|lieferwoche|fahrer|tour:|seite \d|klasse|preis|kasse|rechnung|bankeinzug|lieferpaket|kollektion|behältemappe|wunsch-kollektion/.test(s) ||
+    /\btel[:.]?\b|\btelefon\b|\bdw\s*\d+/.test(s) ||
+    /\b\d{1,2}\.\d{1,2}\.\d{4}\b/.test(s) ||
+    /^[\d\s.,/*()_-]+$/.test(s);
+}
+
+function normalizeOcrLines(text){
+  const out=[];
+  for(let rawLine of text.split(/\r?\n/)){
+    let line=cleanLine(rawLine);
+    if(!line) continue;
+
+    // OCR hängt Straße und "A-1234 Ort" manchmal in dieselbe Zeile.
+    const combined=line.match(/^(.*?\d+[a-zA-Z]?)\s+(A[- ]?\d{4}\s+.+)$/i);
+    if(combined && !/tel[:.]?/i.test(line)){
+      out.push(cleanLine(combined[1]));
+      out.push(cleanLine(combined[2]));
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function parsePostalLine(line){
+  if(!line) return null;
+
+  // Die PLZ muss am ANFANG stehen. Dadurch wird z.B. eine Telefonnummer nicht zur Adresse.
+  const m=line.match(/^(?:A[- ]?)?(\d{4})\s+(.+)$/i);
+  if(!m) return null;
+
+  let city=cleanLine(m[2])
+    .replace(/\s+(?:tel|telefon)[:.].*$/i,'')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+
+  // Header/Telefonzeilen wie "1140 Wien, Tel: ..." explizit verwerfen.
+  if(!city || /tel[:.]?|telefon|morawa|lesezirkel|hackinger|dw\s*\d+|@|www\.|©/.test(city.toLowerCase())) return null;
+  if(/\b\d{1,2}\.\d{1,2}\.\d{4}\b/.test(city)) return null;
+  if(city.length>45) return null;
+
+  return {postal:m[1], city};
+}
+
 function looksLikeStreet(line){
-  if(!line || line.length<3) return false;
-  if(/^(tel|telefon|knr|kunde|lieferung|klasse|preis|kasse|seite|tour|fahrer|liefertag|lieferwoche)/i.test(line)) return false;
-  if(/\b\d{1,4}[a-zA-Z]?\b/.test(line) && /(straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|nr\.?|hauptplatz|stadtplatz|kreuzberg|bildbaumweg)/i.test(line)) return true;
+  if(!line || isHeaderOrNoise(line)) return false;
+  const s=line.trim();
+
+  // Klassische österreichische Straßennamen.
+  const streetWord=/(straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|steig|gürtel|kai|lände|promenade|hauptplatz|stadtplatz|kreuzberg|bildbaumweg)/i;
+  if(streetWord.test(s) && /\b\d{1,4}[a-zA-Z]?\b/.test(s)) return true;
+
+  // Sonderfälle der Tourenlisten wie "Bad Großpertholz 72" oder "Nr. 72".
+  if(/^nr\.?\s*\d{1,4}[a-zA-Z]?$/i.test(s)) return true;
+  if(/^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .'\-\/]{2,35}\s+\d{1,4}[a-zA-Z]?$/.test(s)){
+    if(!/\b(knr|tel|tour|fahrer|seite|liefer|klasse|preis)\b/i.test(s)) return true;
+  }
   return false;
 }
-function looksLikeNoise(line){
-  return !line ||
-    /^(tel|telefon|knr|kunde|lieferung|klasse|preis|kasse|seite|tour|fahrer|liefertag|lieferwoche|rech\.?|bankeinzug|kollektion|lieferpaket|behältemappe|wunsch-kollektion)/i.test(line) ||
-    /^[\d\s.,/*-]+$/.test(line);
+
+function cleanCustomerLine(line){
+  let s=cleanLine(line)
+    .replace(/^\d+\s+KNr[:.]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'')
+    .replace(/^KNr[:.]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'')
+    .replace(/^\d+\s+(?=Dr\.|Praxis|Friseur|Bäck|Cafe|Café|Land|Hotel|Studio|Rehab|Tennis|Haar|Moor|Gesund)/i,'')
+    .trim();
+
+  if(isHeaderOrNoise(s)) return '';
+  if(/^(mo|di|mi|do|fr|sa|so|nü|b[h]?m|o\.b|immer|wenn|rechnung|3\. edition)/i.test(s)) return '';
+  if(/^\d+\s*\/\s*\d+/.test(s)) return '';
+  return s;
 }
 
 function parseStops(text){
-  const raw=text.split(/\r?\n/).map(cleanLine).filter(Boolean);
+  const raw=normalizeOcrLines(text);
 
-  // CSV/TXT mit Semikolon/Tab: Name ; Adresse ; PLZ Ort
+  // CSV/TXT: Name ; Adresse ; PLZ Ort
   const structured=[];
   for(const line of raw){
     const sep=line.includes(';')?';':(line.includes('\t')?'\t':null);
-    if(sep){
-      const parts=line.split(sep).map(cleanLine);
-      if(parts.length>=3 && /\b\d{4}\b/.test(parts[2])){
-        structured.push({name:parts[0],address:parts[1],postal:parts.slice(2).join(' ')});
-      }
+    if(!sep) continue;
+    const parts=line.split(sep).map(cleanLine);
+    if(parts.length<3) continue;
+    const postal=parsePostalLine(parts.slice(2).join(' '));
+    if(postal){
+      structured.push({
+        name:parts[0],
+        address:parts[1],
+        postal:`${postal.postal} ${postal.city}`
+      });
     }
   }
   if(structured.length>=2) return structured;
 
-  // Morawa-/OCR-Parser: findet A-1234 Ort bzw. 1234 Ort und die Straße davor.
   const stops=[];
-  let lastPostalIdx=-1;
+  let previousPostalIndex=-1;
 
   for(let i=0;i<raw.length;i++){
-    let line=raw[i];
-    const postalMatch=line.match(/\bA[-\s]?(\d{4})\s+(.{2,})$/i) ||
-                      line.match(/(?:^|\s)(\d{4})\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .\/-]{2,})$/);
+    const p=parsePostalLine(raw[i]);
+    if(!p) continue;
 
-    if(!postalMatch) continue;
-
-    let postal=`${postalMatch[1]} ${postalMatch[2]}`.replace(/\s+/g,' ').trim();
-    postal=postal.replace(/[|]+$/,'').trim();
-
+    // Nur übernehmen, wenn davor wirklich eine plausible Straßenzeile steht.
     let streetIdx=-1;
-    for(let j=i-1;j>=Math.max(lastPostalIdx+1,i-7);j--){
+    for(let j=i-1;j>=Math.max(previousPostalIndex+1,i-6);j--){
       if(looksLikeStreet(raw[j])){
         streetIdx=j;
         break;
       }
     }
+
+    // Kein "irgendeine Zeile mit Zahl"-Fallback mehr:
+    // genau der hat bisher den Morawa-Header als Kunden erkannt.
     if(streetIdx<0){
-      for(let j=i-1;j>=Math.max(lastPostalIdx+1,i-5);j--){
-        if(/\d/.test(raw[j]) && !looksLikeNoise(raw[j])){
-          streetIdx=j;
-          break;
-        }
-      }
+      previousPostalIndex=i;
+      continue;
     }
-    if(streetIdx<0) { lastPostalIdx=i; continue; }
 
-    const address=raw[streetIdx]
-      .replace(/^A[-\s]?\d{4}\s+/i,'')
-      .trim();
+    const address=cleanLine(raw[streetIdx]);
+    const postal=`${p.postal} ${p.city}`;
 
+    // Kunden-/Firmennamen direkt über der Straße suchen.
     const candidateNames=[];
-    for(let j=Math.max(lastPostalIdx+1,streetIdx-4);j<streetIdx;j++){
-      let n=raw[j]
-        .replace(/^\d+\s+KNr[:.]?\s*\d+\s*/i,'')
-        .replace(/^KNr[:.]?\s*\d+\s*/i,'')
-        .trim();
-      if(!looksLikeNoise(n) && n.length>2 && !/^\d+\s*\/\s*\d+/.test(n)){
+    for(let j=Math.max(previousPostalIndex+1,streetIdx-4);j<streetIdx;j++){
+      const n=cleanCustomerLine(raw[j]);
+      if(n && n.length>=3 && !looksLikeStreet(n)){
         candidateNames.push(n);
       }
     }
 
-    let name=candidateNames.slice(-2).join(' – ');
+    // Für Google Maps sind die letzten 2-3 aussagekräftigen Namenszeilen am nützlichsten.
+    let name=candidateNames.slice(-3).join(' - ').trim();
     if(!name) name='Kunde';
 
-    // Duplicate OCR fragments reduzieren
-    name=name.replace(/\s{2,}/g,' ').trim();
+    // Nochmals Schutz gegen Kopfzeilen.
+    const whole=(name+' '+address+' '+postal).toLowerCase();
+    if(/morawa lesezirkel|tourenliste|hackinger|liefertag|lieferwoche/.test(whole)){
+      previousPostalIndex=i;
+      continue;
+    }
 
     stops.push({name,address,postal});
-    lastPostalIdx=i;
+    previousPostalIndex=i;
   }
 
-  // Doppelte OCR-Erkennungen direkt hintereinander entfernen
+  // Identische OCR-Duplikate entfernen, echte doppelte Zustellstopps an derselben
+  // Adresse mit unterschiedlichem Kundennamen aber beibehalten.
+  const seen=new Set();
   const dedup=[];
   for(const s of stops){
-    const key=(s.name+'|'+s.address+'|'+s.postal).toLowerCase();
-    if(!dedup.some(x=>(x.name+'|'+x.address+'|'+x.postal).toLowerCase()===key)){
+    const key=(s.name+'|'+s.address+'|'+s.postal).toLowerCase().replace(/\s+/g,' ');
+    if(!seen.has(key)){
+      seen.add(key);
       dedup.push(s);
     }
   }
