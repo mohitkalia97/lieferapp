@@ -138,11 +138,13 @@ function renderRoute(){
   if(st.completed){$('finishedText').textContent=`${st.done} zugestellt · ${st.notDelivered} nicht zugestellt`;show('route');return;}
 
   let idx=currentTour.currentIndex;
-  if(idx<0||idx>=currentTour.stops.length||!['pending','later'].includes(currentTour.stops[idx].status)) idx=nextPendingIndex(currentTour,idx);
+  if(idx<0||idx>=currentTour.stops.length) idx=nextPendingIndex(currentTour,0);
   currentTour.currentIndex=Math.max(0,idx);
   const s=currentTour.stops[currentTour.currentIndex];
   $('customer').textContent=s.name||'Kunde'; $('address').textContent=fullAddress(s)||'Adresse fehlt';
-  $('stopState').textContent=s.status==='later'?'SPÄTER':'OFFEN'; $('stopNote').value=s.note||''; $('noteDetails').open=!!s.note;
+  const stateText={pending:'OFFEN',later:'SPÄTER',done:'ZUGESTELLT',not_delivered:'NICHT ZUGESTELLT'}[s.status]||'OFFEN';
+  $('stopState').className=`stopState ${s.status}`;
+  $('stopState').textContent=stateText; $('stopNote').value=s.note||''; $('noteDetails').open=!!s.note;
   $('previousStop').disabled=currentTour.currentIndex===0;
   show('route'); updateHeader();
 }
@@ -201,17 +203,34 @@ async function advanceAfterStatus(status){
 function setImportProgress(percent,text){$('importProgressWrap').classList.remove('hidden');$('importProgress').value=Math.max(0,Math.min(100,percent));$('importProgressText').textContent=text;}
 
 // ----- OCR / Parser -----
+function ocrLayoutText(data){
+  const words=(data?.words||[]).filter(w=>cleanLine(w.text||'')&&w.bbox);
+  if(!words.length) return cleanLine(data?.text||'')?data.text:'';
+  const enriched=words.map(w=>{
+    const b=w.bbox, h=Math.max(8,(b.y1||0)-(b.y0||0));
+    return {text:cleanLine(w.text),x:b.x0||0,y:((b.y0||0)+(b.y1||0))/2,h};
+  }).filter(w=>w.text);
+  enriched.sort((a,b)=>a.y-b.y||a.x-b.x);
+  const lines=[];
+  for(const w of enriched){
+    const last=lines[lines.length-1];
+    const threshold=Math.max(8,Math.min(18,w.h*.7));
+    if(last&&Math.abs(last.y-w.y)<=threshold){last.words.push(w);last.y=(last.y*(last.words.length-1)+w.y)/last.words.length;}
+    else lines.push({y:w.y,words:[w]});
+  }
+  return lines.map(line=>line.words.sort((a,b)=>a.x-b.x).map(w=>w.text).join(' ')).join('\n');
+}
 async function ocrPdf(file){
   const bytes=new Uint8Array(await file.arrayBuffer()); const pdf=await pdfjsLib.getDocument({data:bytes}).promise; let allText='';
   for(let p=1;p<=pdf.numPages;p++){
     setImportProgress(5+Math.round(((p-1)/pdf.numPages)*78),`Seite ${p} von ${pdf.numPages} wird gelesen…`);
     const page=await pdf.getPage(p),viewport=page.getViewport({scale:2.6});
     const source=document.createElement('canvas'),sctx=source.getContext('2d',{willReadFrequently:true});source.width=Math.floor(viewport.width);source.height=Math.floor(viewport.height);await page.render({canvasContext:sctx,viewport}).promise;
-    const cropX=Math.floor(source.width*.015),cropY=Math.floor(source.height*.075),cropW=Math.floor(source.width*.40),cropH=Math.floor(source.height*.87);
+    const cropX=Math.floor(source.width*.012),cropY=Math.floor(source.height*.075),cropW=Math.floor(source.width*.46),cropH=Math.floor(source.height*.87);
     const canvas=document.createElement('canvas');canvas.width=cropW;canvas.height=cropH;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,cropX,cropY,cropW,cropH,0,0,cropW,cropH);
     const img=ctx.getImageData(0,0,canvas.width,canvas.height),d=img.data;for(let i=0;i<d.length;i+=4){const g=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);let v=g>210?255:g<145?0:Math.max(0,Math.min(255,Math.round((g-145)*4.2)));d[i]=d[i+1]=d[i+2]=v;}ctx.putImageData(img,0,0);
     const result=await Tesseract.recognize(canvas,'deu',{logger:m=>{if(m.status==='recognizing text'){const base=5+((p-1)/pdf.numPages)*78,share=78/pdf.numPages;setImportProgress(Math.round(base+(m.progress||0)*share),`Seite ${p}/${pdf.numPages}: ${Math.round((m.progress||0)*100)}%`);}}});
-    allText+=`\n===PAGE_${p}===\n${result.data.text}\n`;
+    allText+=`\n===PAGE_${p}===\n${ocrLayoutText(result.data)||result.data.text}\n`;
   }return allText;
 }
 function cleanLine(s){return String(s||'').replace(/[|]+/g,' ').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
@@ -221,13 +240,33 @@ function normalizeLines(text){const a=[];for(const raw of String(text||'').split
 function parsePostal(line){line=cleanLine(line);const m=line.match(/^(?:A[-\s]?)?(\d{4})\s+(.+)$/i);if(!m)return null;let city=cleanLine(m[2]).replace(/\s+(?:tel|telefon)[:.].*$/i,'').replace(/[;,.:]+$/,'').trim();if(!city||/morawa|lesezirkel|hackinger|tel[:.]?|telefon|dw\s*\d+|©|@|www\./i.test(city))return null;return{postal:m[1],city};}
 function looksLikeStopHeader(line){const s=cleanLine(line);return /^\d{1,3}\s+(?:k\s*n\s*r|knr)[.:]?\s*\d{4,}/i.test(s)||/^\d{1,3}\s+.{0,12}\b\d{6,7}\b/.test(s)||/^\d{1,3}\s+k\s*n/i.test(s);}
 function extractStopNumber(line){const m=cleanLine(line).match(/^(\d{1,3})\b/);return m?+m[1]:null;}
-function looksLikeAddress(line){const s=cleanLine(line);if(!s||isNoise(s)||parsePostal(s))return false;if(/\b(straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|steig|gürtel|kai|lände|promenade)\b/i.test(s)&&/\d/.test(s))return true;if(/^nr\.?\s*\d{1,4}[a-zA-Z]?$/i.test(s))return true;return /^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .'\-\/]{1,48}\s+\d{1,4}[a-zA-Z]?$/.test(s);}
-function cleanNameLine(line){let s=cleanLine(line).replace(/^\d{1,3}\s+(?:k\s*n\s*r|knr)[.:]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'').replace(/^(?:k\s*n\s*r|knr)[.:]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'').trim();if(!s||isNoise(s)||parsePostal(s)||looksLikeAddress(s)||/^(mo|di|mi|do|fr|sa|so|nü|b[h]?m|o\.b|immer|wenn|3\. edition)/i.test(s)||/\b(tel|telefon)\b/i.test(s)||/^\d+\s*\/\s*\d+/.test(s))return'';return s;}
+function addressFromLine(line){
+  const s=cleanLine(line); if(!s||isNoise(s)||parsePostal(s))return null;
+  const street='straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|steig|gürtel|kai|lände|promenade';
+  if(/^nr\.?\s*\d{1,4}[a-zA-Z]?$/i.test(s))return{address:s,nameBefore:''};
+  const dash=s.match(/^(.*?)\s+-\s+(.+)$/);
+  if(dash){
+    const tail=cleanLine(dash[2]);
+    const nested=addressFromLine(tail);
+    if(nested)return{address:nested.address,nameBefore:[cleanLine(dash[1]),nested.nameBefore].filter(Boolean).join(' - ')};
+  }
+  const re=new RegExp(`((?:[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.'\\/-]+\\s+){0,1}[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.'\\/-]*(?:${street})\\s+\\d{1,4}[a-zA-Z]?)`,'ig');
+  const matches=[...s.matchAll(re)];
+  if(matches.length){
+    const m=matches[matches.length-1],address=cleanLine(m[1]);
+    return{address,nameBefore:cleanLine(s.slice(0,m.index))};
+  }
+  if(new RegExp(`\\b(${street})\\b`,'i').test(s)&&/\d/.test(s)&&s.split(/\s+/).length<=5)return{address:s,nameBefore:''};
+  if(s.split(/\s+/).length<=4&&/^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .'\-\/]{1,48}\s+\d{1,4}[a-zA-Z]?$/.test(s))return{address:s,nameBefore:''};
+  return null;
+}
+function looksLikeAddress(line){return !!addressFromLine(line);}
+function cleanNameLine(line){let s=cleanLine(line).replace(/^\d{1,3}\s+(?:k\s*n\s*r|knr)[.:]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'').replace(/^(?:k\s*n\s*r|knr)[.:]?\s*\d+\s*(?:\d+\/\d+)?\s*/i,'').trim();const embedded=addressFromLine(s);if(embedded?.nameBefore)s=embedded.nameBefore;if(!s||isNoise(s)||parsePostal(s)||looksLikeAddress(s)||/^(?:(?:mo|di|mi|do|fr|sa|so)(?:\b|[.:])|nü|b[h]?m|o\.b|immer|wenn|3\. edition)/i.test(s)||/\b(tel|telefon)\b/i.test(s)||/^\d+\s*\/\s*\d+/.test(s))return'';return s;}
 function splitIntoBlocks(lines){const blocks=[];let cur=[];for(const line of lines){if(isPageMarker(line)){if(cur.length){blocks.push(cur);cur=[];}continue;}if(looksLikeStopHeader(line)){if(cur.length)blocks.push(cur);cur=[line];}else if(cur.length)cur.push(line);}if(cur.length)blocks.push(cur);return blocks;}
-function blockToStop(block){if(!block?.length)return null;const joined=block.join(' ');if(/nicht beliefert/i.test(joined))return null;const stopNo=extractStopNumber(block[0]);let postalIdx=-1,p=null;for(let i=1;i<block.length;i++){const x=parsePostal(block[i]);if(x){postalIdx=i;p=x;break;}}let addr=-1,end=postalIdx>=0?postalIdx:block.length;for(let i=end-1;i>=1;i--){if(looksLikeAddress(block[i])){addr=i;break;}}const names=[],nameEnd=addr>=0?addr:(postalIdx>=0?postalIdx:Math.min(block.length,5));for(let i=1;i<nameEnd;i++){const n=cleanNameLine(block[i]);if(n)names.push(n);}let name=names.slice(-3).join(' - ').trim()||`Stopp ${stopNo??'?'}`;const address=addr>=0?cleanLine(block[addr]):'',postal=p?`${p.postal} ${p.city}`:'';if(/tourenliste|morawa lesezirkel|hackinger/i.test(`${name} ${address} ${postal}`))return null;return{name,address,postal,needsReview:!address||!postal||name.startsWith('Stopp ')};}
-function fallbackPostalStops(lines){const r=[];let prev=-1;for(let i=0;i<lines.length;i++){if(isPageMarker(lines[i])){prev=i;continue;}const p=parsePostal(lines[i]);if(!p)continue;let a=-1;for(let j=i-1;j>=Math.max(prev+1,i-6);j--){if(looksLikeAddress(lines[j])){a=j;break;}}if(a<0){prev=i;continue;}const names=[];for(let j=Math.max(prev+1,a-4);j<a;j++){const n=cleanNameLine(lines[j]);if(n)names.push(n);}const name=names.slice(-3).join(' - ')||'Kunde';if(!/tourenliste|morawa lesezirkel|hackinger/i.test(name))r.push({name,address:cleanLine(lines[a]),postal:`${p.postal} ${p.city}`,needsReview:false});prev=i;}return r;}
-function sameStop(a,b){const n=s=>String(s||'').toLowerCase().replace(/[^a-z0-9äöüß]+/g,'');return n(a.address)&&n(a.postal)&&n(a.name)&&n(a.address)===n(b.address)&&n(a.postal)===n(b.postal)&&n(a.name)===n(b.name);}
-function parseStops(text){const lines=normalizeLines(text);const structured=[];for(const line of lines){const sep=line.includes(';')?';':line.includes('\t')?'\t':null;if(!sep)continue;const parts=line.split(sep).map(cleanLine);if(parts.length<3)continue;const p=parsePostal(parts.slice(2).join(' '));if(p)structured.push({name:parts[0],address:parts[1],postal:`${p.postal} ${p.city}`,needsReview:false});}if(structured.length>=2)return structured;const blocks=splitIntoBlocks(lines),a=blocks.map(blockToStop).filter(Boolean),b=fallbackPostalStops(lines),merged=[];for(const s of [...a,...b])if(!merged.some(x=>sameStop(x,s)))merged.push(s);return merged;}
+function blockToStop(block){if(!block?.length)return null;const joined=block.join(' ');if(/nicht beliefert/i.test(joined))return null;const stopNo=extractStopNumber(block[0]);let postalIdx=-1,p=null;for(let i=1;i<block.length;i++){const x=parsePostal(block[i]);if(x){postalIdx=i;p=x;break;}}let addr=-1,addrData=null,end=postalIdx>=0?postalIdx:block.length;for(let i=end-1;i>=1;i--){const found=addressFromLine(block[i]);if(found){addr=i;addrData=found;break;}}const names=[],nameEnd=addr>=0?addr+1:(postalIdx>=0?postalIdx:Math.min(block.length,5));for(let i=1;i<nameEnd;i++){const n=i===addr&&addrData?.nameBefore?cleanNameLine(addrData.nameBefore):cleanNameLine(block[i]);if(n)names.push(n);}let name=names.slice(-3).join(' - ').trim()||`Stopp ${stopNo??'?'}`;const address=addrData?.address||'',postal=p?`${p.postal} ${p.city}`:'';if(!address||!postal||/tourenliste|morawa lesezirkel|hackinger/i.test(`${name} ${address} ${postal}`))return null;return{name,address,postal,needsReview:name.startsWith('Stopp ')};}
+function fallbackPostalStops(lines){const r=[];let prev=-1;for(let i=0;i<lines.length;i++){if(isPageMarker(lines[i])){prev=i;continue;}const p=parsePostal(lines[i]);if(!p)continue;const windowLines=lines.slice(Math.max(prev+1,i-8),i+1).join(' ');if(/nicht beliefert/i.test(windowLines)){prev=i;continue;}let a=-1,addrData=null;for(let j=i-1;j>=Math.max(prev+1,i-6);j--){const found=addressFromLine(lines[j]);if(found){a=j;addrData=found;break;}}if(a<0){prev=i;continue;}const names=[];for(let j=Math.max(prev+1,a-4);j<=a;j++){const n=j===a&&addrData?.nameBefore?cleanNameLine(addrData.nameBefore):cleanNameLine(lines[j]);if(n)names.push(n);}const name=names.slice(-3).join(' - ')||'Kunde';if(!/tourenliste|morawa lesezirkel|hackinger/i.test(name))r.push({name,address:addrData.address,postal:`${p.postal} ${p.city}`,needsReview:false});prev=i;}return r;}
+function sameStop(a,b){const n=s=>String(s||'').toLowerCase().replace(/[^a-z0-9äöüß]+/g,'');return n(a.address)&&n(a.postal)&&n(a.address)===n(b.address)&&n(a.postal)===n(b.postal);}
+function parseStops(text){const lines=normalizeLines(text);const structured=[];for(const line of lines){const sep=line.includes(';')?';':line.includes('\t')?'\t':null;if(!sep)continue;const parts=line.split(sep).map(cleanLine);if(parts.length<3)continue;const p=parsePostal(parts.slice(2).join(' '));if(p&&parts[0]&&!/kunde|firma|name/i.test(parts[0]))structured.push({name:parts[0],address:parts[1],postal:`${p.postal} ${p.city}`,needsReview:false});}if(structured.length>=2)return structured;const blocks=splitIntoBlocks(lines),primary=blocks.map(blockToStop).filter(Boolean),fallback=fallbackPostalStops(lines),merged=[];for(const s of primary)if(!merged.some(x=>sameStop(x,s)))merged.push(s);for(const s of fallback)if(!merged.some(x=>sameStop(x,s)))merged.push(s);return merged;}
 
 // ----- Events -----
 $('resumeTour').onclick=()=>renderRoute();
