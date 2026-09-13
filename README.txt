@@ -19,3 +19,10 @@ Neu in V5:
 - PDF-/Foto-/TXT-/CSV-Import
 
 Hinweis: Für OCR von PDF/Fotos wird beim Import Internet benötigt, da PDF.js und Tesseract.js extern geladen werden. Die gespeicherten Touren selbst bleiben lokal auf dem Gerät.
+
+
+V5.1 OCR-Fix:
+- Morawa-PDFs werden nur in der Kundenspalte gelesen.
+- TSV/Koordinaten statt reiner OCR-Textreihenfolge.
+- Keine doppelte Fallback-Mischung mehr.
+- Eintrag braucht Adresse + PLZ; 'nicht beliefert'-Zeilen ohne PLZ werden nicht als Zustellstopp importiert.
