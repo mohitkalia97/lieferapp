@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
@@ -14,35 +16,37 @@
   <header>
     <div>
       <h1>LieferRoute</h1>
-      <div class="subtitle">Waze + Kunden-Suche</div>
+      <div class="subtitle">Touren dauerhaft speichern · Waze · Google Maps</div>
     </div>
-    <span id="status">Keine Tour</span>
+    <span id="status">Bereit</span>
   </header>
 
-  <section id="home" class="card">
-    <h2>Was möchtest du machen?</h2>
-    <button id="openImport" class="primary">📄 Tourenliste importieren</button>
-    <button id="openManual" class="secondary">✍️ Tour manuell anlegen</button>
-  </section>
-
-  <section id="importScreen" class="card hidden">
-    <div class="screenTitle">
-      <button class="backIcon" data-home>‹</button>
-      <h2>Liste importieren</h2>
+  <section id="home" class="card screen">
+    <div id="resumeCard" class="resume hidden">
+      <div>
+        <div class="eyebrow">AKTIVE TOUR</div>
+        <strong id="resumeName"></strong>
+        <small id="resumeMeta"></small>
+      </div>
+      <button id="resumeTour" class="primary compact">Fortsetzen</button>
     </div>
 
-    <p class="hint">
-      PDF, Foto, TXT oder CSV auswählen. Bei eingescannten PDFs wird die Liste direkt
-      auf deinem Gerät per OCR gelesen.
-    </p>
+    <h2>Was möchtest du machen?</h2>
+    <div class="menuGrid">
+      <button id="openImport" class="primary menuButton"><span>📄</span>Tourenliste importieren</button>
+      <button id="openManual" class="secondary menuButton"><span>✍️</span>Tour manuell anlegen</button>
+      <button id="openSaved" class="secondary menuButton"><span>🗂️</span>Gespeicherte Touren</button>
+      <button id="openBackup" class="secondary menuButton"><span>💾</span>Backup / Export</button>
+    </div>
+    <p class="hint small homeHint">Deine Touren und dein aktueller Stopp werden direkt auf diesem iPhone gespeichert.</p>
+  </section>
 
-    <label class="filePicker">
-      <span>Datei auswählen</span>
-      <input id="importFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt,.csv,application/pdf,image/*,text/plain,text/csv">
-    </label>
+  <section id="importScreen" class="card screen hidden">
+    <div class="screenTitle"><button class="backIcon" data-home>‹</button><h2>Liste importieren</h2></div>
+    <p class="hint">PDF, Foto, TXT oder CSV auswählen. Morawa-PDFs werden gezielt über die Kundenspalte erkannt. Danach kannst du alles vor dem Speichern kontrollieren.</p>
 
+    <label class="filePicker"><span>Datei auswählen</span><input id="importFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt,.csv,application/pdf,image/*,text/plain,text/csv"></label>
     <div id="importFileName" class="fileName">Noch keine Datei ausgewählt</div>
-
     <button id="runImport" class="primary">Liste einlesen</button>
 
     <div id="importProgressWrap" class="hidden">
@@ -51,59 +55,104 @@
     </div>
 
     <div id="importResult" class="hidden">
-      <div class="resultHeader">
-        <h3>Erkannte Stopps</h3>
-        <span id="detectedCount"></span>
-      </div>
-      <p class="hint small">Bitte kurz kontrollieren. OCR kann bei schlechten Scans einzelne Zeichen falsch erkennen.</p>
-      <div id="importStops" class="stop-list"></div>
-      <button id="startImported" class="primary">Mit diesen Stopps Tour starten</button>
+      <div class="resultHeader"><h3>Erkannte Stopps</h3><span id="detectedCount"></span></div>
+      <p class="hint small">Gelb markierte Einträge bitte prüfen. Nichts wird gestartet, bevor du die Liste bestätigst.</p>
+      <div class="input-group"><label>Tourname</label><input id="importTourName" placeholder="z. B. Morawa Freitag KW 37"></div>
+      <div id="importStops" class="stop-list importList"></div>
+      <button id="saveImported" class="primary">Tour speichern & öffnen</button>
       <button id="clearImport" class="secondary">Import verwerfen</button>
     </div>
   </section>
 
-  <section id="manualScreen" class="card hidden">
-    <div class="screenTitle">
-      <button class="backIcon" data-home>‹</button>
-      <h2>Manuelle Tour</h2>
-    </div>
-
-    <div class="input-group">
-      <label>Kundenname / Firma</label>
-      <input id="customerName" placeholder="z. B. Friseur Milano">
-    </div>
-    <div class="input-group">
-      <label>Adresse</label>
-      <input id="streetAddress" placeholder="z. B. Rennbahnweg 25">
-    </div>
-    <div class="input-group">
-      <label>Postleitzahl / Ort</label>
-      <input id="postalCity" placeholder="z. B. 1220 Wien">
-    </div>
-
-    <button id="addStop" class="secondary">+ Stopp hinzufügen</button>
+  <section id="manualScreen" class="card screen hidden">
+    <div class="screenTitle"><button class="backIcon" data-home>‹</button><h2>Manuelle Tour</h2></div>
+    <div class="input-group"><label>Tourname</label><input id="manualTourName" placeholder="z. B. Freitag Tour"></div>
+    <div class="input-group"><label>Kundenname / Firma</label><input id="customerName" placeholder="z. B. Friseur Milano"></div>
+    <div class="input-group"><label>Adresse</label><input id="streetAddress" placeholder="z. B. Rennbahnweg 25"></div>
+    <div class="input-group"><label>Postleitzahl / Ort</label><input id="postalCity" placeholder="z. B. 1220 Wien"></div>
+    <button id="addManualStop" class="secondary">+ Stopp hinzufügen</button>
     <div id="manualStops" class="stop-list"></div>
-    <button id="startManual" class="primary">Tour starten</button>
+    <button id="saveManual" class="primary">Tour speichern & öffnen</button>
   </section>
 
-  <section id="route" class="card hidden">
-    <div class="progress">
-      <span id="counter"></span>
+  <section id="savedScreen" class="card screen hidden">
+    <div class="screenTitle"><button class="backIcon" data-home>‹</button><h2>Gespeicherte Touren</h2></div>
+    <div id="savedTours"></div>
+  </section>
+
+  <section id="backupScreen" class="card screen hidden">
+    <div class="screenTitle"><button class="backIcon" data-home>‹</button><h2>Backup / Export</h2></div>
+    <p class="hint">Damit kannst du alle Touren sichern und später auf demselben oder einem anderen Gerät wiederherstellen.</p>
+    <button id="exportBackup" class="primary">Alle Touren als Backup exportieren</button>
+    <label class="filePicker smallPicker"><span>Backup wiederherstellen</span><input id="restoreFile" type="file" accept="application/json,.json"></label>
+    <div class="divider"><span>Aktive Tour</span></div>
+    <button id="exportCsv" class="secondary">Aktive Tour als CSV exportieren</button>
+  </section>
+
+  <section id="route" class="card screen hidden">
+    <div class="routeTop">
+      <button id="routeHome" class="backIcon">‹</button>
+      <div class="routeTitleWrap"><div class="eyebrow">TOUR</div><strong id="routeName"></strong></div>
+      <button id="openTourList" class="iconButton" aria-label="Tourliste">☰</button>
+    </div>
+
+    <div class="progress routeProgressBox">
+      <div class="progressRow"><span id="counter"></span><span id="progressStats"></span></div>
       <progress id="routeProgress" max="100"></progress>
     </div>
 
-    <div class="customer" id="customer"></div>
-    <div class="address" id="address"></div>
-
-    <button id="waze" class="primary">In Waze navigieren</button>
-    <button id="google" class="google">Kunde in Google Maps suchen</button>
-    <button id="done" class="done">✓ Erledigt & Weiter</button>
-
-    <div class="row">
-      <button id="back" class="secondary">← Zurück</button>
-      <button id="skip" class="secondary">Überspringen</button>
+    <div id="routeFinished" class="finished hidden">
+      <div class="finishedIcon">✓</div>
+      <h2>Tour erledigt</h2>
+      <p id="finishedText"></p>
+      <button id="viewFinishedList" class="secondary">Tourliste ansehen</button>
+      <button id="finishToHome" class="primary">Zur Startseite</button>
     </div>
-    <button id="reset" class="danger">Tour beenden / löschen</button>
+
+    <div id="activeStop">
+      <div class="stopState" id="stopState">OFFEN</div>
+      <div class="customer" id="customer"></div>
+      <div class="address" id="address"></div>
+
+      <div class="navGrid">
+        <button id="waze" class="primary">Waze</button>
+        <button id="google" class="google">Google Maps</button>
+      </div>
+
+      <button id="done" class="done">✓ Zugestellt & Weiter</button>
+      <button id="notDelivered" class="notDelivered">✕ Nicht zugestellt</button>
+      <button id="later" class="secondary">↷ Später – ans Ende verschieben</button>
+
+      <details class="noteBox" id="noteDetails">
+        <summary>Notiz zu diesem Kunden</summary>
+        <textarea id="stopNote" placeholder="z. B. Hintereingang, Paket in Postkasten, Ansprechpartner …"></textarea>
+      </details>
+
+      <div class="row">
+        <button id="previousStop" class="secondary">← Vorheriger</button>
+        <button id="editCurrent" class="secondary">Bearbeiten</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tourListScreen" class="card screen hidden">
+    <div class="screenTitle"><button id="backToRoute" class="backIcon">‹</button><div><h2 id="listTourName">Tourliste</h2><div id="listStats" class="hint small"></div></div></div>
+    <div class="listActions">
+      <button id="addStopFromList" class="secondary">+ Stopp</button>
+      <button id="resetStatuses" class="secondary">Status zurücksetzen</button>
+    </div>
+    <div id="tourStopList" class="tourStopList"></div>
+    <button id="deleteCurrentTour" class="danger">Diese Tour löschen</button>
+  </section>
+
+  <section id="editStopScreen" class="card screen hidden">
+    <div class="screenTitle"><button id="cancelEditStop" class="backIcon">‹</button><h2 id="editStopTitle">Stopp bearbeiten</h2></div>
+    <div class="input-group"><label>Kundenname / Firma</label><input id="editName"></div>
+    <div class="input-group"><label>Adresse</label><input id="editAddress"></div>
+    <div class="input-group"><label>Postleitzahl / Ort</label><input id="editPostal"></div>
+    <div class="input-group"><label>Notiz</label><textarea id="editNote" rows="4"></textarea></div>
+    <button id="saveEditedStop" class="primary">Speichern</button>
+    <button id="removeEditedStop" class="danger">Stopp löschen</button>
   </section>
 </main>
 

@@ -1,9 +1,16 @@
 {
-  "name":"LieferRoute",
-  "short_name":"LieferRoute",
-  "start_url":"./",
-  "display":"standalone",
-  "background_color":"#f3f3f3",
-  "theme_color":"#111111",
-  "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+  "name": "LieferRoute",
+  "short_name": "LieferRoute",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f3f3",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
 }
