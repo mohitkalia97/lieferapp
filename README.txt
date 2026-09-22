@@ -70,3 +70,8 @@ V5.6:
 - Automatische Adresszuordnung reduziert wiederholte Bestätigungen.
 - Versionsgebundene App-Dateien und Cache-Aktualisierung für installierte Apps.
 - Standortabfragen enden nach 15 Sekunden mit einer Alternative zur GPS-Suche.
+
+V5.7:
+- Wenn keine schnellere Reihenfolge gefunden wird, bleibt "Tour fortsetzen" aktiv.
+- Bestätigen einer unveränderten Reihenfolge erhält den aktuellen Stopp,
+  Zustellstatus und eine vorhandene Rückgängig-Option.
