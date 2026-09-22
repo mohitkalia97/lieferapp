@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const planner=require('../routing.js');
+const routeMap=require('../route-map.js');
 const source=fs.readFileSync(require.resolve('../optimizer-ui.js'),'utf8');
 
 function environment(getCurrentPosition,isSecureContext=true,overrides={}){
@@ -12,7 +13,7 @@ function environment(getCurrentPosition,isSecureContext=true,overrides={}){
     return {checked:false,children:[],append(...children){this.children.push(...children);},appendChild(child){this.children.push(child);},replaceChildren(){this.children=[];},
       classList:{add:c=>classes.add(c),remove:c=>classes.delete(c),contains:c=>classes.has(c),toggle:(c,force)=>force?classes.add(c):classes.delete(c)}};
   }
-  const context=vm.createContext({RoutePlanner:planner,DOMException,setTimeout,clearTimeout,window:{isSecureContext},navigator:{geolocation:{getCurrentPosition}},
+  const context=vm.createContext({RoutePlanner:planner,RouteMap:{...routeMap,render:()=>({destroy(){}})},DOMException,setTimeout,clearTimeout,window:{isSecureContext},navigator:{geolocation:{getCurrentPosition}},
     document:{querySelector:()=>({checked:false}),createElement:()=>element()},show:id=>{context.shown=id;},
     $:id=>{
       if(!elements.has(id))elements.set(id,element());
@@ -113,6 +114,8 @@ function confirmationEnvironment(changed=false){
   context.testPreview={tourId:'tour',fingerprint:context.tourFingerprint(context.currentTour),originalIds:['a','b'],
     orderedStops:(changed?[3,1]:[1,3]).map(i=>context.currentTour.stops[i]),startLabel:'Teststart',
     plan:{before:{duration:1200,distance:10000},after:{duration:changed?900:1200,distance:changed?8000:10000},savedSeconds:changed?300:0}};
+  context.testPreview.mapData=routeMap.snapshot({plan:{...context.testPreview.plan,order:changed?[0,2,1]:[0,1,2]},
+    points:[{lat:48,lon:16},{lat:48.1,lon:16.1},{lat:48.2,lon:16.2}],stops:[context.currentTour.stops[1],context.currentTour.stops[3]],mode:'gps',startLabel:'Teststart'},'2026-09-22T12:00:00Z');
   vm.runInContext('commitTourOrder=saveOrder; optimizationPreview=testPreview; showOptimizationPreview(testPreview);',context);
   return context;
 }
@@ -132,6 +135,7 @@ test('confirming an unchanged route preserves the current stop, delivery data an
   assert.equal(context.currentTour.currentIndex,before.currentIndex);
   assert.equal(context.currentTour.routeUndo,undo);
   assert.deepEqual(Array.from(context.currentTour.stops),before.stops);
+  assert.ok(routeMap.isCurrent(context.currentTour));
   assert.equal(vm.runInContext('optimizationPreview',context),null);
 });
 
@@ -144,6 +148,7 @@ test('an improved preview still applies the new order and creates undo history',
   assert.deepEqual(Array.from(context.currentTour.stops,s=>s.id),['done','b','later','a']);
   assert.deepEqual(Array.from(context.currentTour.routeUndo.before),['done','a','later','b']);
   assert.equal(context.currentTour.currentIndex,1);assert.equal(context.shown,'tourListScreen');
+  assert.ok(routeMap.isCurrent(context.currentTour));
 });
 
 test('a stale unchanged preview cannot overwrite edits or delivery progress',async()=>{
@@ -173,4 +178,21 @@ test('repeated taps cannot start two confirmation writes',async()=>{
   await context.$('applyOptimization').onclick();
   assert.equal(writes,1);assert.equal(context.$('applyOptimization').disabled,true);
   finish();await first;assert.equal(context.shown,'route');
+});
+
+test('saved map opens from both tour screens and returns to the correct screen',async()=>{
+  const context=confirmationEnvironment(true);
+  await context.$('applyOptimization').onclick();
+  for(const [button,screen] of [['mapFromRoute','route'],['mapFromList','tourListScreen']]){
+    context.$(button).onclick();assert.equal(context.shown,'tourMapScreen');
+    context.$('closeTourMap').onclick();assert.equal(context.shown,screen);
+  }
+});
+
+test('leaving map screens releases map resources',()=>{
+  const context=confirmationEnvironment();let destroyed=0;
+  context.testMap={destroy(){destroyed++;}};
+  vm.runInContext('optimizationMapView=testMap; savedTourMapView=testMap; releaseRouteMaps("route");',context);
+  assert.equal(destroyed,2);
+  vm.runInContext('releaseRouteMaps("home");',context);assert.equal(destroyed,2);
 });

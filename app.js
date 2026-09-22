@@ -3,7 +3,7 @@ const DB_VERSION=1;
 const TOUR_STORE='tours';
 const META_STORE='meta';
 const $=id=>document.getElementById(id);
-const screens=['home','importScreen','manualScreen','savedScreen','backupScreen','route','tourListScreen','editStopScreen','optimizeScreen'];
+const screens=['home','importScreen','manualScreen','savedScreen','backupScreen','route','tourListScreen','editStopScreen','optimizeScreen','tourMapScreen'];
 let db=null;
 let currentTour=null;
 let manualStops=[];
@@ -24,7 +24,7 @@ function normalizeTour(t){
   return {
     id:t.id||uid(), name:t.name||'Unbenannte Tour', source:t.source||'manual', createdAt:t.createdAt||now(), updatedAt:t.updatedAt||now(),
     currentIndex:Number.isInteger(t.currentIndex)?t.currentIndex:0,
-    stops:(t.stops||[]).map(stopTemplate), routeUndo:t.routeUndo||null
+    stops:(t.stops||[]).map(stopTemplate), routeUndo:t.routeUndo||null, routeMap:RouteMap.valid(t.routeMap)?t.routeMap:null
   };
 }
 
@@ -48,7 +48,7 @@ function dbDelete(store,key){return new Promise((resolve,reject)=>{const r=tx(st
 async function setMeta(key,value){await dbPut(META_STORE,{key,value});}
 async function getMeta(key){return (await dbGet(META_STORE,key))?.value ?? null;}
 
-function show(id){if(id!=='optimizeScreen'&&typeof cancelOptimization==='function')cancelOptimization();screens.forEach(s=>$(s).classList.toggle('hidden',s!==id)); window.scrollTo(0,0);}
+function show(id){if(id!=='optimizeScreen'&&typeof cancelOptimization==='function')cancelOptimization();if(typeof releaseRouteMaps==='function')releaseRouteMaps(id);screens.forEach(s=>$(s).classList.toggle('hidden',s!==id)); window.scrollTo(0,0);}
 function routeStats(t){
   const total=t?.stops?.length||0, done=t?.stops?.filter(s=>s.status==='done').length||0, notDelivered=t?.stops?.filter(s=>s.status==='not_delivered').length||0;
   const open=Math.max(0,total-done-notDelivered);
@@ -63,6 +63,7 @@ function nextPendingIndex(t,start=0){
 async function saveCurrent(){
   if(!currentTour) return;
   if(!RoutePlanner.undoAvailable(currentTour))currentTour.routeUndo=null;
+  if(!RouteMap.isCurrent(currentTour))currentTour.routeMap=null;
   currentTour.updatedAt=now();
   await dbPut(TOUR_STORE,currentTour);
   await setMeta('currentTourId',currentTour.id);
@@ -164,7 +165,7 @@ async function renderSaved(){
   wrap.querySelectorAll('[data-open]').forEach(b=>b.onclick=async()=>{currentTour=normalizeTour(await dbGet(TOUR_STORE,b.dataset.open));await setMeta('currentTourId',currentTour.id);renderRoute();});
   wrap.querySelectorAll('[data-dup]').forEach(b=>b.onclick=async()=>{
     const original=normalizeTour(await dbGet(TOUR_STORE,b.dataset.dup));
-    const copy=normalizeTour({...original,id:uid(),name:original.name+' – Kopie',createdAt:now(),updatedAt:now(),currentIndex:0,stops:original.stops.map(s=>({...s,id:uid(),status:'pending',completedAt:null}))});
+    const copy=normalizeTour({...original,id:uid(),name:original.name+' – Kopie',createdAt:now(),updatedAt:now(),currentIndex:0,routeMap:null,stops:original.stops.map(s=>({...s,id:uid(),status:'pending',completedAt:null}))});
     await dbPut(TOUR_STORE,copy);await renderSaved();
   });
   wrap.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{

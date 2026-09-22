@@ -30,30 +30,33 @@ function environment(fetchImpl=async()=>new Response('fresh')){
 
 test('install precaches the versioned optimizer and bypasses stale HTTP assets',async()=>{
   const env=environment();await env.dispatch('install');
-  assert.ok(env.added.some(request=>request.url.endsWith('optimizer-ui.js?v=5.7')));
-  assert.ok(env.added.some(request=>request.url.endsWith('routing.js?v=5.7')));
+  assert.ok(env.added.some(request=>request.url.endsWith('optimizer-ui.js?v=5.8')));
+  assert.ok(env.added.some(request=>request.url.endsWith('routing.js?v=5.8')));
+  assert.ok(env.added.some(request=>request.url.endsWith('route-map.js?v=5.8')));
+  assert.ok(env.added.some(request=>request.url.endsWith('vendor/leaflet/leaflet.js')));
+  assert.ok(env.added.every(request=>!request.url.includes('tile.openstreetmap.org')));
   assert.ok(env.added.every(request=>request.cache==='reload'));
 });
 test('script fetches revalidate instead of silently reusing stale HTTP scripts',async()=>{
   const env=environment();
-  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.7')});
+  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.8')});
   assert.equal(await response.text(),'fresh');assert.equal(env.requests[0].options.cache,'no-cache');
 });
 test('offline fetches serve only the matching version of a cached script',async()=>{
   const env=environment(async()=>{throw new TypeError('offline');});
-  env.stores.set('lieferroute-shell-v5-7',new Map([[origin+'/lieferapp/app.js?v=5.7',new Response('current cached script')]]));
-  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.7')});
+  env.stores.set('lieferroute-shell-v5-8',new Map([[origin+'/lieferapp/app.js?v=5.8',new Response('current cached script')]]));
+  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.8')});
   assert.equal(await response.text(),'current cached script');
-  await assert.rejects(env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.8')}),/offline/);
+  await assert.rejects(env.dispatch('fetch',{request:new Request(origin+'/lieferapp/app.js?v=5.9')}),/offline/);
 });
 test('a deployment error cannot overwrite a working cached optimizer',async()=>{
   const env=environment(async()=>new Response('not found',{status:404}));
-  env.stores.set('lieferroute-shell-v5-7',new Map([[origin+'/lieferapp/optimizer-ui.js?v=5.7',new Response('working optimizer')]]));
-  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/optimizer-ui.js?v=5.7')});
+  env.stores.set('lieferroute-shell-v5-8',new Map([[origin+'/lieferapp/optimizer-ui.js?v=5.8',new Response('working optimizer')]]));
+  const response=await env.dispatch('fetch',{request:new Request(origin+'/lieferapp/optimizer-ui.js?v=5.8')});
   assert.equal(await response.text(),'working optimizer');
 });
 test('activation removes old app shells without clearing unrelated caches',async()=>{
   const env=environment();
-  for(const key of ['lieferroute-shell-v5-6','lieferroute-shell-v5-7','another-project'])env.stores.set(key,new Map());
-  await env.dispatch('activate');assert.deepEqual(env.removed,['lieferroute-shell-v5-6']);
+  for(const key of ['lieferroute-shell-v5-7','lieferroute-shell-v5-8','another-project'])env.stores.set(key,new Map());
+  await env.dispatch('activate');assert.deepEqual(env.removed,['lieferroute-shell-v5-7']);
 });

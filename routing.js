@@ -129,9 +129,9 @@
       async optimize(points,signal){
         if(points.length<2||points.length>MAX_STOPS+1||!points.every(validPoint))throw new Error('Ungültige Anzahl oder Position der Stopps.');
         const coords=points.map(p=>`${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
-        const trip=await request(`${services.router}/trip/v1/driving/${coords}?source=first&destination=any&roundtrip=false&overview=false&steps=false`,signal);
+        const trip=await request(`${services.router}/trip/v1/driving/${coords}?source=first&destination=any&roundtrip=false&overview=full&geometries=geojson&steps=false`,signal);
         if(trip.code!=='Ok')throw new Error('Keine durchgehende Autoroute gefunden. Bitte Adressen prüfen oder später erneut versuchen.');
-        const baseline=await request(`${services.router}/route/v1/driving/${coords}?overview=false&steps=false`,signal);
+        const baseline=await request(`${services.router}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`,signal);
         return selectPlan(points,trip,baseline);
       }
     };

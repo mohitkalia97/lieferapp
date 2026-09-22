@@ -6,9 +6,10 @@
   <meta name="theme-color" content="#111111">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="manifest" href="manifest.webmanifest?v=5.7">
+  <link rel="manifest" href="manifest.webmanifest?v=5.8">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=5.7">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css?v=5.8">
   <title>Kalia Route App</title>
 </head>
 <body>
@@ -102,6 +103,7 @@
       <progress id="routeProgress" max="100"></progress>
     </div>
     <button id="optimizeFromRoute" class="secondary">Tour optimieren</button>
+    <button id="mapFromRoute" class="secondary mapOpenButton hidden"><img src="vendor/lucide/map.svg" alt="" width="20" height="20">Tourkarte</button>
 
     <div id="routeFinished" class="finished hidden">
       <div class="finishedIcon">✓</div>
@@ -148,6 +150,7 @@
       <button id="undoOptimization" class="secondary hidden">Sortierung zurücksetzen</button>
     </div>
     <p id="optimizationNotice" class="hint small hidden" role="status"></p>
+    <button id="mapFromList" class="secondary mapOpenButton hidden"><img src="vendor/lucide/map.svg" alt="" width="20" height="20">Tourkarte</button>
     <div id="tourStopList" class="tourStopList"></div>
     <button id="deleteCurrentTour" class="danger">Diese Tour löschen</button>
   </section>
@@ -166,7 +169,7 @@
         <div class="input-group"><label for="optimizationCountry">Land der Lieferadressen</label><select id="optimizationCountry"><option value="AT">Österreich</option><option value="DE">Deutschland</option><option value="CH">Schweiz</option><option value="">Alle Länder</option></select></div>
         <label class="checkOption"><input id="optimizationIncludeLater" type="checkbox"> „Später“-Stopps einbeziehen</label>
       </fieldset>
-      <p class="hint small">Für die Berechnung werden Adressen an Photon und Koordinaten an OSRM gesendet. Fahrzeiten ohne Live-Verkehr und Zustellpausen.</p>
+      <p class="hint small">Für die Berechnung werden Adressen an Photon und Koordinaten an OSRM gesendet. Kartenkacheln werden von OpenStreetMap geladen. Fahrzeiten ohne Live-Verkehr und Zustellpausen.</p>
       <button id="calculateOptimization" class="primary" type="submit">Reihenfolge berechnen</button>
     </form>
     <div id="optimizationProgressWrap" class="hidden" role="status" aria-live="polite">
@@ -186,11 +189,17 @@
       <div class="optimizationMetrics"><div><span>Bisher</span><strong id="optimizationBefore"></strong></div><div><span>Vorschlag</span><strong id="optimizationAfter"></strong></div><div class="saving"><span>Ersparnis</span><strong id="optimizationSaving"></strong></div></div>
       <p id="optimizationDistance" class="hint small"></p>
       <p id="optimizationStartLabel" class="hint small"></p>
-      <ol id="optimizationStopPreview" class="optimizationStopPreview"></ol>
+      <div id="optimizationMap" class="routeMap"></div>
       <p id="optimizationResultNote" class="hint small hidden" role="status"></p>
       <button id="applyOptimization" class="primary">Reihenfolge übernehmen</button>
     </div>
     <p class="mapAttribution small">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · <a href="https://photon.komoot.io" target="_blank" rel="noopener noreferrer">Photon</a> · <a href="https://project-osrm.org" target="_blank" rel="noopener noreferrer">OSRM</a></p>
+  </section>
+
+  <section id="tourMapScreen" class="screen optimizationScreen hidden" aria-labelledby="tourMapTitle">
+    <div class="screenTitle"><button id="closeTourMap" class="backIcon" aria-label="Zurück">‹</button><div><h2 id="tourMapTitle">Tourkarte</h2><div id="tourMapName" class="hint small"></div></div></div>
+    <p id="tourMapDate" class="hint small"></p>
+    <div id="savedTourMap" class="routeMap"></div>
   </section>
 
   <section id="editStopScreen" class="card screen hidden">
@@ -206,8 +215,10 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="routing.js?v=5.7"></script>
-<script src="app.js?v=5.7"></script>
-<script src="optimizer-ui.js?v=5.7"></script>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="routing.js?v=5.8"></script>
+<script src="route-map.js?v=5.8"></script>
+<script src="app.js?v=5.8"></script>
+<script src="optimizer-ui.js?v=5.8"></script>
 </body>
 </html>

@@ -45,3 +45,27 @@ progress{width:100%;height:10px;margin-top:8px}.progressRow{display:flex;justify
 .optimizationStopPreview small{display:block;font-size:13px;color:#666;margin-top:3px}.mapAttribution{margin:22px 0 0;color:#777;line-height:1.7}
 .srOnly{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:430px){.optimizationScreen{padding:16px}.optimizationMetrics{gap:6px}.optimizationMetrics strong{font-size:17px}}
+
+.mapOpenButton{display:flex;align-items:center;justify-content:center;gap:8px}
+.routeMap{min-width:0;margin:18px 0;letter-spacing:0}
+.routeMapToolbar{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:8px;align-items:center}
+.routeMapModes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:#ededed;border-radius:6px;padding:3px;gap:3px}
+.routeMapModes button{border-radius:4px;padding:10px 2px;margin:0;font-size:14px;height:40px;line-height:20px;white-space:nowrap;background:transparent;letter-spacing:0}
+.routeMapModes button[aria-pressed=true]{background:#111;color:#fff}
+.routeMapFit{width:44px;height:44px;padding:0;margin:0;display:grid;place-items:center;border:1px solid #d4d4d4;background:#fff}
+.routeMapSummary{font-size:13px;line-height:1.5;min-height:48px;padding:10px 0;color:#444;font-variant-numeric:tabular-nums}
+.routeMapCanvas{height:420px;height:clamp(320px,55svh,480px);width:100%;isolation:isolate;background:#eee;border:1px solid #ddd;border-radius:6px}
+.routeMapCanvas .leaflet-control-zoom a{width:40px;height:40px;line-height:40px;color:#111;background:#fff}
+.routeMapCanvas .leaflet-control-attribution{font-size:10px;max-width:100%;line-height:1.5}
+.routeMapCanvas .leaflet-popup-content-wrapper{border-radius:6px}
+.routeMapCanvas .leaflet-popup-content{max-width:230px;overflow-wrap:anywhere;margin:14px}
+.routeMapLegend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:12px;margin-top:10px;color:#444;min-height:24px}
+.routeMapKey{display:inline-flex;align-items:center;gap:6px}.routeMapSwatch{display:inline-block;width:22px;border-top:4px solid #087765}.routeMapSwatch.before{border-color:#2563eb;border-top-style:dashed}
+.routeMapNumberKey{color:#666}.routeMapStatus{margin:8px 0}
+.routeMapMarker{background:transparent;border:0}.routeMapBadge{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:#087765;color:#fff;border:2px solid #fff;box-shadow:0 1px 5px #0008;border-radius:50%;font-size:12px;font-weight:800;font-family:inherit}
+.routeMapMarker.before .routeMapBadge{background:#2563eb}.routeMapEnd .routeMapBadge{border:4px double #fff}.routeMapStart .routeMapBadge{border-radius:5px;background:#111}
+.routeMapPopup{font-size:13px;line-height:1.45;overflow-wrap:anywhere}.routeMapPopup+.routeMapPopup{border-top:1px solid #ddd;margin-top:8px;padding-top:8px}.routeMapPopup strong,.routeMapPopup span,.routeMapPopup small{display:block}.routeMapPopup small{color:#666;margin-top:3px}
+.routeMapStops{border-block:1px solid #ddd;margin-top:14px}.routeMapStops summary{padding:14px 0;font-size:14px;font-weight:700;cursor:pointer}.routeMapStopList{list-style:none;margin:0;padding:0;max-height:360px;overflow:auto}
+.routeMapStop{display:flex;gap:10px;align-items:flex-start;text-align:left;margin:0;padding:12px 0;border-radius:0!important;border-top:1px solid #eee;background:transparent;font-size:14px;font-weight:400}.routeMapStop:disabled{opacity:1;cursor:default}.routeMapListNumber{display:grid;place-items:center;background:#eee;border-radius:50%;min-width:28px;height:28px;font-weight:700;font-size:12px}.routeMapStop .routeMapPopup{min-width:0}
+.routeMap button:focus-visible,.routeMap summary:focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+@media(max-width:360px){.routeMapModes button{font-size:12px;padding-inline:0}}

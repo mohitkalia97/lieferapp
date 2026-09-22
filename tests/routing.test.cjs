@@ -147,7 +147,19 @@ test('routing requests an open driving trip and compares with the original route
   assert.equal(urls[0].searchParams.get('source'),'first');
   assert.equal(urls[0].searchParams.get('destination'),'any');
   assert.ok(urls[1].pathname.startsWith('/route/v1/driving/'));
+  for(const url of urls){assert.equal(url.searchParams.get('overview'),'full');assert.equal(url.searchParams.get('geometries'),'geojson');}
   assert.deepEqual(plan.order,[0,2,1]);
+});
+
+test('map geometries follow the selected plan, including unchanged or slower proposals',()=>{
+  const before=baseline(),after=trip();
+  before.routes[0].geometry={type:'LineString',coordinates:[[16,48],[16.1,48.1],[16.2,48.2]]};
+  after.trips[0].geometry={type:'LineString',coordinates:[[16,48],[16.2,48.2],[16.1,48.1]]};
+  assert.equal(planner.selectPlan(points,after,before).after.geometry,after.trips[0].geometry);
+  after.trips[0].duration=300;
+  const kept=planner.selectPlan(points,after,before);
+  assert.equal(kept.after.geometry,before.routes[0].geometry);
+  assert.deepEqual(kept.order,[0,1,2]);
 });
 test('service throttling and network failures produce actionable errors',async()=>{
   const limited=planner.createClient({interval:0,fetchImpl:async()=>({ok:false,status:429})});

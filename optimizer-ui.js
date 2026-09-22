@@ -3,6 +3,25 @@ let optimizationRun=null;
 let optimizationPreview=null;
 let optimizationReturnTo='tourListScreen';
 let optimizationMessage=null;
+let optimizationMapView=null;
+let savedTourMapView=null;
+let tourMapReturnTo='route';
+
+function releaseRouteMaps(screen){
+  if(screen!=='optimizeScreen'){optimizationMapView?.destroy();optimizationMapView=null;}
+  if(screen!=='tourMapScreen'){savedTourMapView?.destroy();savedTourMapView=null;}
+}
+
+function openTourMap(returnTo){
+  if(!RouteMap.isCurrent(currentTour))return;
+  tourMapReturnTo=returnTo;
+  savedTourMapView?.destroy();
+  $('tourMapName').textContent=currentTour.name;
+  const date=new Date(currentTour.routeMap.createdAt);
+  $('tourMapDate').textContent=Number.isNaN(date.getTime())?'Geplante Fahrstrecke':`Geplante Fahrstrecke · ${date.toLocaleString('de-AT')}`;
+  show('tourMapScreen');
+  savedTourMapView=RouteMap.render($('savedTourMap'),currentTour.routeMap);
+}
 
 function checkOptimizationAbort(signal){
   if(signal.aborted)throw new DOMException('Abgebrochen','AbortError');
@@ -13,6 +32,9 @@ function tourFingerprint(tour){
 }
 
 function renderOptimizationActions(){
+  const hasMap=RouteMap.isCurrent(currentTour);
+  $('mapFromRoute').classList.toggle('hidden',!hasMap);
+  $('mapFromList').classList.toggle('hidden',!hasMap);
   const open=currentTour?.stops.filter(s=>s.status==='pending'||s.status==='later').length||0;
   $('optimizeFromRoute').classList.toggle('hidden',open===0);
   $('optimizeFromList').disabled=false;
@@ -40,6 +62,7 @@ function setOptimizationBusy(busy){
 }
 
 function invalidateOptimization(){
+  optimizationMapView?.destroy();optimizationMapView=null;
   optimizationPreview=null;
   $('optimizationPreview').classList.add('hidden');
   const count=RoutePlanner.eligible(currentTour?.stops||[],$('optimizationIncludeLater').checked).length;
@@ -180,16 +203,13 @@ function showOptimizationPreview(preview){
   $('optimizationStartLabel').textContent=`Start: ${startLabel}`;
   const changed=orderedStops.some((s,i)=>s.id!==preview.originalIds[i]);
   $('optimizationResultTitle').textContent=changed?'Neue Reihenfolge':'Aktuelle Reihenfolge beibehalten';
-  const wrap=$('optimizationStopPreview');wrap.replaceChildren();
-  orderedStops.forEach(stop=>{
-    const li=document.createElement('li'),name=document.createElement('strong'),address=document.createElement('small');
-    name.textContent=stop.name||'Kunde';address.textContent=fullAddress(stop);li.append(name,address);wrap.appendChild(li);
-  });
   $('optimizationResultNote').textContent=changed?'':'Keine schnellere Reihenfolge gefunden. Deine aktuelle Tour ist bereit.';
   $('optimizationResultNote').classList.toggle('hidden',changed);
   $('applyOptimization').textContent=changed?'Reihenfolge übernehmen':'Tour fortsetzen';
   $('applyOptimization').disabled=false;
   $('optimizationPreview').classList.remove('hidden');
+  optimizationMapView?.destroy();
+  optimizationMapView=RouteMap.render($('optimizationMap'),preview.mapData);
 }
 
 async function calculateOptimization(event){
@@ -230,7 +250,8 @@ async function calculateOptimization(event){
     checkOptimizationAbort(signal);
     if(!currentTour||tourFingerprint(currentTour)!==fingerprint)throw new Error('Die Tour wurde inzwischen geändert. Bitte neu berechnen.');
     const orderedStops=plan.order.filter(i=>mode==='first'||i!==0).map(i=>stops[mode==='first'?i:i-1]);
-    optimizationPreview={plan,orderedStops,originalIds:stops.map(s=>s.id),startLabel,fingerprint,tourId:currentTour.id};
+    const mapData=RouteMap.snapshot({plan,points,stops,mode,startLabel},now());
+    optimizationPreview={plan,orderedStops,originalIds:stops.map(s=>s.id),startLabel,fingerprint,tourId:currentTour.id,mapData};
     showOptimizationPreview(optimizationPreview);
     $('optimizationPreview').scrollIntoView({block:'start',behavior:'smooth'});
   }catch(error){
@@ -262,6 +283,9 @@ $('optimizationSettings').onchange=()=>{optimizationError();invalidateOptimizati
 $('optimizationStartAddress').oninput=()=>invalidateOptimization();
 $('optimizeFromRoute').onclick=()=>openOptimization('route');
 $('optimizeFromList').onclick=()=>openOptimization('tourListScreen');
+$('mapFromRoute').onclick=()=>openTourMap('route');
+$('mapFromList').onclick=()=>openTourMap('tourListScreen');
+$('closeTourMap').onclick=()=>tourMapReturnTo==='route'?renderRoute():renderTourList();
 $('closeOptimization').onclick=()=>{cancelOptimization();optimizationReturnTo==='route'?renderRoute():renderTourList();};
 $('cancelOptimizationRun').onclick=()=>{cancelOptimization();optimizationError('Berechnung abgebrochen. Die Reihenfolge bleibt unverändert.');};
 $('applyOptimization').onclick=async()=>{
@@ -273,6 +297,7 @@ $('applyOptimization').onclick=async()=>{
     const stops=RoutePlanner.reorderStops(currentTour.stops,preview.orderedStops.map(s=>s.id));
     const changed=stops.some((stop,index)=>stop.id!==currentTour.stops[index].id);
     const next={...currentTour,stops,updatedAt:now(),currentIndex:changed?stops.findIndex(s=>s.id===preview.orderedStops[0].id):currentTour.currentIndex,
+      routeMap:preview.mapData?{...preview.mapData,tourKey:RouteMap.tourKey(stops)}:null,
       routeUndo:changed?{before:currentTour.stops.map(s=>s.id),after:stops.map(s=>s.id),currentId:currentTour.stops[currentTour.currentIndex]?.id}:currentTour.routeUndo};
     await commitTourOrder(next,preview.fingerprint);
     currentTour=next;updateHeader();
@@ -288,7 +313,7 @@ $('undoOptimization').onclick=async()=>{
     const fingerprint=tourFingerprint(currentTour),undo=currentTour.routeUndo;
     const byId=new Map(currentTour.stops.map(s=>[s.id,s])),stops=undo.before.map(id=>byId.get(id));
     const previousIndex=stops.findIndex(s=>s.id===undo.currentId&&(s.status==='pending'||s.status==='later'));
-    const next={...currentTour,stops,updatedAt:now(),routeUndo:null,currentIndex:previousIndex>=0?previousIndex:Math.max(0,nextPendingIndex({stops}))};
+    const next={...currentTour,stops,updatedAt:now(),routeUndo:null,routeMap:null,currentIndex:previousIndex>=0?previousIndex:Math.max(0,nextPendingIndex({stops}))};
     await commitTourOrder(next,fingerprint);currentTour=next;updateHeader();
     optimizationMessage={tourId:next.id,text:'Vorherige Reihenfolge wiederhergestellt.'};renderTourList();
   }catch(error){alert(error.message);}

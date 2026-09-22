@@ -75,3 +75,15 @@ V5.7:
 - Wenn keine schnellere Reihenfolge gefunden wird, bleibt "Tour fortsetzen" aktiv.
 - Bestätigen einer unveränderten Reihenfolge erhält den aktuellen Stopp,
   Zustellstatus und eine vorhandene Rückgängig-Option.
+
+V5.8:
+- Interaktive Tourkarte mit Vorher, Nachher und gemeinsamem Routenvergleich.
+- Nummerierte Stopps, Start/Ziel, Adressdetails und tatsächliche OSRM-Straßenverläufe.
+- Nach dem Übernehmen bleibt die Planung über "Tourkarte" verfügbar, auch nach
+  einem Neustart und bei Zustellfortschritt. Adress- oder Reihenfolgeänderungen
+  machen die gespeicherte Karte ungültig; dann bitte neu berechnen.
+- Nur die zur Optimierung ausgewählten Stopps werden dargestellt. Kein GPS-Tracking.
+- Leaflet 1.9.4 und Lucide-Icons 0.468.0 liegen lokal unter vendor/ mit Lizenzen.
+  OpenStreetMap-Kacheln benötigen Internet und werden nicht offline vorab geladen.
+  https://leafletjs.com/reference.html
+  https://operations.osmfoundation.org/policies/tiles/
