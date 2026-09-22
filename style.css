@@ -3,6 +3,8 @@
 body{margin:0;background:#f3f3f3;color:#111}
 .app{max-width:680px;margin:auto;padding:calc(18px + env(safe-area-inset-top)) 16px calc(36px + env(safe-area-inset-bottom))}
 header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px}
+header>div{min-width:0}header h1{overflow-wrap:anywhere}#status{flex-shrink:0;max-width:110px}
+.appUpdateNotice{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;margin-bottom:12px;font-size:14px;border-bottom:1px solid #ccc}.appUpdateNotice .compact{flex-shrink:0}
 h1{font-size:25px;margin:0}.subtitle{font-size:13px;color:#777;margin-top:3px}#status{font-size:13px;color:#666;padding-top:5px;text-align:right}
 .card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 3px 18px #00000010}.hidden{display:none!important}.screen{animation:fade .12s ease-out}@keyframes fade{from{opacity:.65}to{opacity:1}}
 h2{margin:0 0 14px}h3{margin:0}.hint{color:#666;line-height:1.45}.small{font-size:13px}.eyebrow{font-size:11px;font-weight:800;letter-spacing:.09em;color:#777;margin-bottom:3px}

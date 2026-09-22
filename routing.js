@@ -4,6 +4,7 @@
   const SERVICES={geocoder:'https://photon.komoot.io/api/',router:'https://router.project-osrm.org'};
   const MAX_STOPS=80;
   const normalize=value=>String(value??'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/ß/g,'ss').replace(/[^a-z0-9]/g,'');
+  const streetKey=value=>normalize(String(value??'').toLowerCase().replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')).replace(/str$/,'strasse');
   const keyPart=value=>String(value??'').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
   const houseNumber=value=>String(value??'').toLowerCase().replace(/\s+/g,'');
   const addressKey=(stop,country)=>JSON.stringify([country,keyPart(stop.address),keyPart(stop.postal)]);
@@ -13,17 +14,42 @@
   function candidates(data){
     return (data?.features||[]).map(f=>{
       const p=f.properties||{},c=f.geometry?.coordinates||[];
-      return {lon:c[0],lat:c[1],street:p.street||'',house:p.housenumber||'',postal:p.postcode||'',country:p.countrycode||'',
+      return {lon:c[0],lat:c[1],street:p.street||'',house:p.housenumber||'',postal:p.postcode||'',country:p.countrycode||'',kind:p.type||'',name:p.name||'',
         label:[p.name,[p.street,p.housenumber].filter(Boolean).join(' '),[p.postcode,p.city||p.town||p.village||p.district].filter(Boolean).join(' '),p.country].filter(Boolean).join(', ')};
     }).filter(p=>validPoint(p)&&p.label).filter((p,i,a)=>a.findIndex(other=>other.lat===p.lat&&other.lon===p.lon)===i);
   }
 
-  function exactMatch(stop,points,country){
+  function sameBuilding(points){
+    if(!points.length)return null;
+    // Separate map records for a building, entrance and business are one destination.
+    for(let i=0;i<points.length;i++)for(let j=i+1;j<points.length;j++){
+      const a=points[i],b=points[j],dy=(a.lat-b.lat)*111320,dx=(a.lon-b.lon)*111320*Math.cos((a.lat+b.lat)*Math.PI/360);
+      if(Math.hypot(dx,dy)>120)return null;
+    }
+    return points.find(p=>p.kind==='house'&&!p.name)||points.find(p=>!p.name)||points[0];
+  }
+
+  function ocrStreetMatch(a,b){
+    if(a.length<8||a.length!==b.length)return false;
+    let differences=0;
+    for(let i=0;i<a.length;i++)if(a[i]!==b[i]){
+      if(!(['i','l','1'].includes(a[i])&&['i','l','1'].includes(b[i]))&&!(['o','0'].includes(a[i])&&['o','0'].includes(b[i])))return false;
+      differences++;
+    }
+    return differences===1;
+  }
+
+  function automaticMatch(stop,points,country){
     const parts=String(stop.address).trim().match(/^(.*?)\s+(\d+\s*[a-z]?(?:\s*[-/]\s*\d+[a-z]?)?)$/i);
     const postal=String(stop.postal).match(/\b\d{4,5}\b/)?.[0];
     if(!parts||!postal)return null;
-    const matches=points.filter(p=>normalize(p.street)===normalize(parts[1])&&houseNumber(p.house)===houseNumber(parts[2])&&p.postal===postal&&(!country||p.country.toUpperCase()===country));
-    return matches.length===1?matches[0]:null;
+    const street=streetKey(parts[1]);
+    const addresses=points.filter(p=>validPoint(p)&&houseNumber(p.house)===houseNumber(parts[2])&&p.postal===postal&&(!country||p.country.toUpperCase()===country));
+    const exact=addresses.filter(p=>streetKey(p.street)===street);
+    if(exact.length)return sameBuilding(exact);
+    const corrected=addresses.filter(p=>ocrStreetMatch(street,streetKey(p.street)));
+    if(new Set(corrected.map(p=>streetKey(p.street))).size!==1)return null;
+    return sameBuilding(corrected);
   }
 
   function checkRoute(route,count){
@@ -111,7 +137,7 @@
     };
   }
 
-  const api={SERVICES,MAX_STOPS,addressKey,validPoint,eligible,candidates,exactMatch,selectPlan,reorderStops,undoAvailable,createClient};
+  const api={SERVICES,MAX_STOPS,addressKey,validPoint,eligible,candidates,automaticMatch,selectPlan,reorderStops,undoAvailable,createClient};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.RoutePlanner=api;
 })(typeof window==='object'?window:globalThis);

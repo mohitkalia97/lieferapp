@@ -6,20 +6,21 @@
   <meta name="theme-color" content="#111111">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="manifest.webmanifest?v=5.6">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css">
-  <title>LieferRoute</title>
+  <link rel="stylesheet" href="style.css?v=5.6">
+  <title>Kalia Route App</title>
 </head>
 <body>
 <main class="app">
   <header>
     <div>
-      <h1>LieferRoute</h1>
+      <h1>Kalia Route App</h1>
       <div class="subtitle">Touren dauerhaft speichern · Waze · Google Maps</div>
     </div>
     <span id="status">Bereit</span>
   </header>
+  <div id="appUpdateNotice" class="appUpdateNotice hidden" role="status"><span>Eine neue Version ist verfügbar.</span><button id="reloadApp" class="primary compact" type="button">Neu laden</button></div>
 
   <section id="home" class="card screen">
     <div id="resumeCard" class="resume hidden">
@@ -204,8 +205,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="routing.js"></script>
-<script src="app.js"></script>
-<script src="optimizer-ui.js"></script>
+<script src="routing.js?v=5.6"></script>
+<script src="app.js?v=5.6"></script>
+<script src="optimizer-ui.js?v=5.6"></script>
 </body>
 </html>

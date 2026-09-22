@@ -64,11 +64,11 @@ test('coordinates must be numeric, finite and within geographic bounds',()=>{
   assert.equal(planner.validPoint({lat:0,lon:0}),true);
 });
 test('automatic matching requires the exact house, street, postcode and country',()=>{
-  assert.equal(planner.exactMatch(stop('a'),[house],'AT'),house);
+  assert.equal(planner.automaticMatch(stop('a'),[house],'AT'),house);
   for(const change of [{house:'26'},{street:'Hauptstraße'},{postal:'1210'},{country:'DE'},{house:''}]){
-    assert.equal(planner.exactMatch(stop('a'),[{...house,...change}],'AT'),null);
+    assert.equal(planner.automaticMatch(stop('a'),[{...house,...change}],'AT'),null);
   }
-  assert.equal(planner.exactMatch(stop('a'),[house,{...house,lat:48.24}],'AT'),null);
+  assert.equal(planner.automaticMatch(stop('a'),[house,{...house,lat:48.24}],'AT'),null);
 });
 test('cache keys change when address, postal code or country changes',()=>{
   const original=planner.addressKey(stop('a'),'AT');
@@ -80,8 +80,52 @@ test('house number separators cannot collide in the cache or automatic matching'
   const slash={...stop('a'),address:'Rennbahnweg 1/2'};
   const plain={...stop('a'),address:'Rennbahnweg 12'};
   assert.notEqual(planner.addressKey(slash,'AT'),planner.addressKey(plain,'AT'));
-  assert.equal(planner.exactMatch(slash,[{...house,house:'12'}],'AT'),null);
-  assert.ok(planner.exactMatch(slash,[{...house,house:'1/2'}],'AT'));
+  assert.equal(planner.automaticMatch(slash,[{...house,house:'12'}],'AT'),null);
+  assert.ok(planner.automaticMatch(slash,[{...house,house:'1/2'}],'AT'));
+});
+test('duplicate building and business records do not interrupt the driver',()=>{
+  const input={address:'Lindenweg 4c',postal:'1234 Beispielstadt'};
+  const building={...house,street:'Lindenweg',house:'4c',postal:'1234',kind:'house',name:''};
+  const business={...building,lat:building.lat+0.0001,kind:'other',name:'Cafe'};
+  const entrance={...building,lon:building.lon+0.0001};
+  assert.equal(planner.automaticMatch(input,[business,building,entrance],'AT'),building);
+});
+test('nearby businesses with the same full address are accepted even without a building record',()=>{
+  const input={address:'Lindenweg 4c',postal:'1234 Beispielstadt'};
+  const first={...house,street:'Lindenweg',house:'4c',postal:'1234',name:'Cafe',kind:'other'};
+  const second={...first,lat:first.lat+0.0002,name:'Sporthalle'};
+  assert.equal(planner.automaticMatch(input,[first,second],'AT'),first);
+});
+test('a single OCR I/l confusion is resolved with exact house number and postcode',()=>{
+  const input={address:'Paui Meyer Strasse 7',postal:'1234 Beispielstadt'};
+  const building={...house,street:'Paul-Meyer-Straße',house:'7',postal:'1234'};
+  assert.equal(planner.automaticMatch(input,[building,{...building,lat:building.lat+0.0001}],'AT'),building);
+  assert.equal(planner.automaticMatch({...input,postal:'4321 Anderstadt'},[building],'AT'),null);
+  assert.equal(planner.automaticMatch(input,[{...building,house:'8'}],'AT'),null);
+});
+test('street abbreviations and common umlaut spellings match automatically',()=>{
+  const input={address:'Muehlstr. 7',postal:'1234 Beispielstadt'};
+  const building={...house,street:'Mühlstraße',house:'7',postal:'1234'};
+  assert.equal(planner.automaticMatch(input,[building],'AT'),building);
+});
+test('umlaut handling does not collapse different ordinary street names',()=>{
+  const input={address:'Neuenweg 7',postal:'1234 Beispielstadt'};
+  assert.equal(planner.automaticMatch(input,[{...house,street:'Neunweg',house:'7',postal:'1234'}],'AT'),null);
+});
+test('exact spelling wins over an OCR-like alternative street',()=>{
+  const input={address:'Paui Meyer Strasse 7',postal:'1234 Beispielstadt'};
+  const exact={...house,street:'Paui-Meyer-Straße',house:'7',postal:'1234'};
+  assert.equal(planner.automaticMatch(input,[{...exact,street:'Paul-Meyer-Straße'},exact],'AT'),exact);
+});
+test('duplicate records far apart still require a location choice',()=>{
+  assert.equal(planner.automaticMatch(stop('a'),[house,{...house,lon:house.lon+0.01}],'AT'),null);
+});
+test('a house suffix is retained and an apartment record cannot replace another building',()=>{
+  const input={address:'Birkenweg 7a',postal:'1234 Beispielstadt'};
+  const building={...house,street:'Birkenweg',house:'7a',postal:'1234'};
+  const unit={...building,house:'7a/2/6',lat:building.lat+0.0001};
+  assert.equal(planner.automaticMatch(input,[unit,building,{...building,lat:building.lat+0.0001}],'AT'),building);
+  assert.equal(planner.automaticMatch(input,[{...building,house:'7b'}],'AT'),null);
 });
 test('geocoder candidates drop invalid coordinates and duplicate locations',()=>{
   const feature={geometry:{coordinates:[16,48]},properties:{street:'Hauptplatz',housenumber:'1',postcode:'1010',city:'Wien'}};

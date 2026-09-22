@@ -1,6 +1,6 @@
 {
-  "name": "LieferRoute",
-  "short_name": "LieferRoute",
+  "name": "Kalia Route App",
+  "short_name": "Kalia Route",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f3f3f3",

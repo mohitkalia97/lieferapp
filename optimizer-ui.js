@@ -14,8 +14,8 @@ function tourFingerprint(tour){
 
 function renderOptimizationActions(){
   const open=currentTour?.stops.filter(s=>s.status==='pending'||s.status==='later').length||0;
-  $('optimizeFromRoute').classList.toggle('hidden',open<2);
-  $('optimizeFromList').disabled=open<2;
+  $('optimizeFromRoute').classList.toggle('hidden',open===0);
+  $('optimizeFromList').disabled=false;
   $('undoOptimization').classList.toggle('hidden',!RoutePlanner.undoAvailable(currentTour));
   const message=optimizationMessage?.tourId===currentTour?.id?optimizationMessage.text:'';
   $('optimizationNotice').textContent=message;
@@ -64,21 +64,27 @@ function openOptimization(returnTo){
   optimizationError();
   invalidateOptimization();
   show('optimizeScreen');
+  if(RoutePlanner.eligible(currentTour.stops,$('optimizationIncludeLater').checked).length<2){
+    optimizationError('Mindestens zwei offene Stopps nötig. Bei Bedarf „Später“-Stopps einbeziehen.');
+  }
 }
 
 function getStartPosition(signal){
   return new Promise((resolve,reject)=>{
     if(!window.isSecureContext||!navigator.geolocation)return reject(new Error('Standort nicht verfügbar. Bitte eine Startadresse oder den ersten offenen Stopp wählen.'));
-    let finished=false;
+    let finished=false,timer;
     const finish=(error,point)=>{
       if(finished)return;
       finished=true;
+      clearTimeout(timer);
       signal.removeEventListener('abort',cancel);
       error?reject(error):resolve(point);
     };
     const cancel=()=>finish(new DOMException('Abgebrochen','AbortError'));
     if(signal.aborted)return cancel();
     signal.addEventListener('abort',cancel,{once:true});
+    // Browser GPS timeouts may not include time spent waiting for permission.
+    timer=setTimeout(()=>finish(new Error('Standortabfrage dauert zu lange. Bitte eine Startadresse oder den ersten offenen Stopp wählen.')),15000);
     navigator.geolocation.getCurrentPosition(p=>{
       if(p.coords.accuracy>1000)return finish(new Error('Dein Standort ist zu ungenau. Bitte eine Startadresse oder den ersten offenen Stopp wählen.'));
       const point={lat:p.coords.latitude,lon:p.coords.longitude,label:'Mein Standort'};
@@ -153,7 +159,7 @@ async function locateStop(stop,country,signal){
   if(RoutePlanner.validPoint(cached?.point))return cached.point;
   const options=await routeClient.geocode(stop,country,signal);
   checkOptimizationAbort(signal);
-  const point=RoutePlanner.exactMatch(stop,options,country)||await chooseLocation(stop,options,country,signal);
+  const point=RoutePlanner.automaticMatch(stop,options,country)||await chooseLocation(stop,options,country,signal);
   checkOptimizationAbort(signal);
   await setMeta(key,{point,locatedAt:now()});
   return point;

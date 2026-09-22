@@ -35,7 +35,12 @@ V5.5 Tourenoptimierung:
 - Zustellstatus, Notizen und bereits bearbeitete Stopps bleiben erhalten.
 - "Sortierung zurücksetzen" stellt die letzte Reihenfolge wieder her, auch nach Neuladen.
   Manuelles Verschieben, Hinzufügen, Entfernen oder "Später"-Verschieben beendet diese Rückgängig-Option.
-- Uneindeutige Adressen müssen ausgewählt oder korrigiert werden; kein Stopp wird übersprungen.
+- Doppelte Karten-Einträge für dasselbe Gebäude werden automatisch zugeordnet.
+  Straße, Hausnummer, PLZ und Land müssen passen; die Standorte dürfen höchstens
+  120 Meter auseinanderliegen. Straßenabkürzungen, Umlautschreibweisen und einzelne
+  OCR-Verwechslungen (I/l/1 oder O/0) werden berücksichtigt.
+- Nur weiterhin unklare Adressen müssen ausgewählt oder korrigiert werden;
+  kein Stopp wird übersprungen. Bestätigte Zuordnungen werden wiederverwendet.
 - Erkannte Standorte werden lokal zwischengespeichert, getrennt nach Adresse und Land.
 - Bis zu 80 Stopps pro Berechnung, ohne Rückfahrt zum Start. Der erste offene Stopp
   bleibt fest, wenn er als Startpunkt gewählt wird.
@@ -59,3 +64,9 @@ Nutzerzahlen oder regelmäßige umfangreiche Nutzung eigene/vertragliche Dienste
 
 Prüfung: node --test tests/*.test.cjs
 Lokale Vorschau (GPS und Offline-App): python -m http.server 8765 --bind 127.0.0.1
+
+V5.6:
+- Neuer App-Name: Kalia Route App.
+- Automatische Adresszuordnung reduziert wiederholte Bestätigungen.
+- Versionsgebundene App-Dateien und Cache-Aktualisierung für installierte Apps.
+- Standortabfragen enden nach 15 Sekunden mit einer Alternative zur GPS-Suche.

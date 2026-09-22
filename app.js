@@ -317,7 +317,17 @@ $('exportBackup').onclick=async()=>{const tours=await dbGetAll(TOUR_STORE),meta=
 $('restoreFile').onchange=async()=>{const f=$('restoreFile').files[0];if(!f)return;try{const data=JSON.parse(await f.text());if(!Array.isArray(data.tours))throw new Error('Ungültiges Backup');if(!confirm(`${data.tours.length} Touren aus Backup importieren? Vorhandene Touren bleiben erhalten.`))return;for(const t of data.tours){const n=normalizeTour(t);const exists=await dbGet(TOUR_STORE,n.id);if(exists)n.id=uid();await dbPut(TOUR_STORE,n);}alert('Backup importiert.');$('restoreFile').value='';await renderHome();}catch(e){alert('Backup konnte nicht gelesen werden: '+e.message);}};
 $('exportCsv').onclick=()=>{if(!currentTour)return alert('Keine aktive Tour.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const rows=[['Nr','Kunde','Adresse','PLZ Ort','Status','Notiz'],...currentTour.stops.map((s,i)=>[i+1,s.name,s.address,s.postal,s.status,s.note])];downloadBlob(`${currentTour.name.replace(/[^a-z0-9äöüß_-]+/gi,'_')}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.map(r=>r.map(q).join(';')).join('\n'));};
 
-(async function init(){
-  try{db=await openDB();await migrateV4();await renderHome();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');}
+async function init(){
+  try{db=await openDB();await migrateV4();await renderHome();}
   catch(e){console.error(e);alert('Lokaler Speicher konnte nicht geöffnet werden. Bitte Safari/Browser neu starten.');}
-})();
+  if('serviceWorker'in navigator){
+    const wasControlled=!!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(wasControlled)$('appUpdateNotice').classList.remove('hidden');
+    });
+    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch(error=>console.warn('Offline-App konnte nicht aktualisiert werden.',error));
+  }
+}
+$('reloadApp').onclick=()=>window.location.reload();
+// All screen handlers must be attached before a saved tour can be opened.
+window.addEventListener('DOMContentLoaded',init,{once:true});
