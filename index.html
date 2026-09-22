@@ -100,6 +100,7 @@
       <div class="progressRow"><span id="counter"></span><span id="progressStats"></span></div>
       <progress id="routeProgress" max="100"></progress>
     </div>
+    <button id="optimizeFromRoute" class="secondary">Tour optimieren</button>
 
     <div id="routeFinished" class="finished hidden">
       <div class="finishedIcon">✓</div>
@@ -141,8 +142,53 @@
       <button id="addStopFromList" class="secondary">+ Stopp</button>
       <button id="resetStatuses" class="secondary">Status zurücksetzen</button>
     </div>
+    <div class="listActions optimizationActions">
+      <button id="optimizeFromList" class="primary">Tour optimieren</button>
+      <button id="undoOptimization" class="secondary hidden">Sortierung zurücksetzen</button>
+    </div>
+    <p id="optimizationNotice" class="hint small hidden" role="status"></p>
     <div id="tourStopList" class="tourStopList"></div>
     <button id="deleteCurrentTour" class="danger">Diese Tour löschen</button>
+  </section>
+
+  <section id="optimizeScreen" class="screen optimizationScreen hidden" aria-labelledby="optimizeTitle">
+    <div class="screenTitle"><button id="closeOptimization" class="backIcon" aria-label="Zurück">‹</button><div><h2 id="optimizeTitle">Tour optimieren</h2><div id="optimizationCount" class="hint small"></div></div></div>
+    <form id="optimizationForm">
+      <fieldset id="optimizationSettings">
+        <legend>Startpunkt</legend>
+        <div class="startOptions">
+          <label><input type="radio" name="routeStart" value="gps" checked> Mein Standort</label>
+          <label><input type="radio" name="routeStart" value="address"> Startadresse</label>
+          <label><input type="radio" name="routeStart" value="first"> Erster offener Stopp</label>
+        </div>
+        <div id="startAddressGroup" class="input-group hidden"><label for="optimizationStartAddress">Startadresse mit PLZ und Ort</label><input id="optimizationStartAddress" placeholder="z. B. Hauptplatz 1, 3970 Weitra" autocomplete="street-address"></div>
+        <div class="input-group"><label for="optimizationCountry">Land der Lieferadressen</label><select id="optimizationCountry"><option value="AT">Österreich</option><option value="DE">Deutschland</option><option value="CH">Schweiz</option><option value="">Alle Länder</option></select></div>
+        <label class="checkOption"><input id="optimizationIncludeLater" type="checkbox"> „Später“-Stopps einbeziehen</label>
+      </fieldset>
+      <p class="hint small">Für die Berechnung werden Adressen an Photon und Koordinaten an OSRM gesendet. Fahrzeiten ohne Live-Verkehr und Zustellpausen.</p>
+      <button id="calculateOptimization" class="primary" type="submit">Reihenfolge berechnen</button>
+    </form>
+    <div id="optimizationProgressWrap" class="hidden" role="status" aria-live="polite">
+      <p id="optimizationProgressText"></p><progress id="optimizationProgress" max="100" value="0" aria-label="Routenberechnung"></progress>
+      <button id="cancelOptimizationRun" class="secondary">Abbrechen</button>
+    </div>
+    <p id="optimizationError" class="optimizationError hidden" role="alert"></p>
+    <div id="locationChoice" class="locationChoice hidden">
+      <h3>Adresse prüfen</h3><p id="locationChoiceName"></p><p id="locationChoiceAddress" class="hint small"></p>
+      <form id="locationSearchForm"><label for="locationSearchQuery">Adresse suchen</label><div class="locationSearch"><input id="locationSearchQuery" required><button id="locationSearchButton" type="submit" class="secondary">Suchen</button></div></form>
+      <p id="locationChoiceMessage" class="hint small" role="status"></p>
+      <fieldset id="locationCandidates"><legend class="srOnly">Passenden Standort wählen</legend></fieldset>
+      <button id="confirmLocationChoice" class="primary" disabled>Standort übernehmen</button>
+    </div>
+    <div id="optimizationPreview" class="hidden">
+      <h3 id="optimizationResultTitle">Neue Reihenfolge</h3>
+      <div class="optimizationMetrics"><div><span>Bisher</span><strong id="optimizationBefore"></strong></div><div><span>Vorschlag</span><strong id="optimizationAfter"></strong></div><div class="saving"><span>Ersparnis</span><strong id="optimizationSaving"></strong></div></div>
+      <p id="optimizationDistance" class="hint small"></p>
+      <p id="optimizationStartLabel" class="hint small"></p>
+      <ol id="optimizationStopPreview" class="optimizationStopPreview"></ol>
+      <button id="applyOptimization" class="primary">Reihenfolge übernehmen</button>
+    </div>
+    <p class="mapAttribution small">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · <a href="https://photon.komoot.io" target="_blank" rel="noopener noreferrer">Photon</a> · <a href="https://project-osrm.org" target="_blank" rel="noopener noreferrer">OSRM</a></p>
   </section>
 
   <section id="editStopScreen" class="card screen hidden">
@@ -158,6 +204,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="routing.js"></script>
 <script src="app.js"></script>
+<script src="optimizer-ui.js"></script>
 </body>
 </html>

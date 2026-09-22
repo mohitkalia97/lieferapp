@@ -3,7 +3,7 @@ const DB_VERSION=1;
 const TOUR_STORE='tours';
 const META_STORE='meta';
 const $=id=>document.getElementById(id);
-const screens=['home','importScreen','manualScreen','savedScreen','backupScreen','route','tourListScreen','editStopScreen'];
+const screens=['home','importScreen','manualScreen','savedScreen','backupScreen','route','tourListScreen','editStopScreen','optimizeScreen'];
 let db=null;
 let currentTour=null;
 let manualStops=[];
@@ -24,7 +24,7 @@ function normalizeTour(t){
   return {
     id:t.id||uid(), name:t.name||'Unbenannte Tour', source:t.source||'manual', createdAt:t.createdAt||now(), updatedAt:t.updatedAt||now(),
     currentIndex:Number.isInteger(t.currentIndex)?t.currentIndex:0,
-    stops:(t.stops||[]).map(stopTemplate)
+    stops:(t.stops||[]).map(stopTemplate), routeUndo:t.routeUndo||null
   };
 }
 
@@ -48,7 +48,7 @@ function dbDelete(store,key){return new Promise((resolve,reject)=>{const r=tx(st
 async function setMeta(key,value){await dbPut(META_STORE,{key,value});}
 async function getMeta(key){return (await dbGet(META_STORE,key))?.value ?? null;}
 
-function show(id){screens.forEach(s=>$(s).classList.toggle('hidden',s!==id)); window.scrollTo(0,0);}
+function show(id){if(id!=='optimizeScreen'&&typeof cancelOptimization==='function')cancelOptimization();screens.forEach(s=>$(s).classList.toggle('hidden',s!==id)); window.scrollTo(0,0);}
 function routeStats(t){
   const total=t?.stops?.length||0, done=t?.stops?.filter(s=>s.status==='done').length||0, notDelivered=t?.stops?.filter(s=>s.status==='not_delivered').length||0;
   const open=Math.max(0,total-done-notDelivered);
@@ -62,6 +62,7 @@ function nextPendingIndex(t,start=0){
 }
 async function saveCurrent(){
   if(!currentTour) return;
+  if(!RoutePlanner.undoAvailable(currentTour))currentTour.routeUndo=null;
   currentTour.updatedAt=now();
   await dbPut(TOUR_STORE,currentTour);
   await setMeta('currentTourId',currentTour.id);
@@ -129,6 +130,7 @@ function renderImported(){
 function renderRoute(){
   if(!currentTour?.stops?.length){renderHome();return;}
   const st=routeStats(currentTour);
+  renderOptimizationActions();
   $('routeName').textContent=currentTour.name;
   $('counter').textContent=`${st.done+st.notDelivered} von ${st.total} bearbeitet`;
   $('progressStats').textContent=`${st.open} offen`;
@@ -174,6 +176,7 @@ async function renderSaved(){
 
 function renderTourList(){
   if(!currentTour)return;
+  renderOptimizationActions();
   const st=routeStats(currentTour);$('listTourName').textContent=currentTour.name;$('listStats').textContent=`${st.done} zugestellt · ${st.notDelivered} nicht zugestellt · ${st.open} offen`;
   const wrap=$('tourStopList');wrap.innerHTML='';
   currentTour.stops.forEach((s,i)=>{

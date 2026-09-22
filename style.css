@@ -21,3 +21,25 @@ progress{width:100%;height:10px;margin-top:8px}.progressRow{display:flex;justify
 .savedCard{border:1px solid #e3e3e3;border-radius:16px;padding:14px;margin:10px 0}.savedHeader{display:flex;justify-content:space-between;gap:10px}.savedHeader strong{font-size:17px}.savedMeta{font-size:12px;color:#666;margin:5px 0 10px}.savedProgress{height:8px;margin:4px 0 10px}.savedButtons{display:grid;grid-template-columns:1fr auto auto;gap:6px}.savedButtons button{margin:0;padding:11px;font-size:13px}.savedButtons .square{width:42px;padding:0}
 .divider{display:flex;align-items:center;gap:10px;color:#888;font-size:12px;margin:22px 0}.divider:before,.divider:after{content:"";height:1px;background:#ddd;flex:1}
 @media(max-width:430px){.app{padding-left:10px;padding-right:10px}.card{padding:16px}.customer{font-size:27px}.savedButtons{grid-template-columns:1fr 42px 42px}}
+.optimizationScreen{background:#fff;padding:20px;overflow-wrap:anywhere}
+.optimizationScreen h2{font-size:22px}.optimizationScreen h3{font-size:18px}
+.optimizationScreen fieldset{border:0;padding:0;margin:18px 0;min-width:0}
+.optimizationScreen legend{font-size:14px;font-weight:750;margin-bottom:10px}
+.startOptions{display:grid;gap:8px}.startOptions label,.checkOption{display:flex;gap:10px;align-items:center;font-size:15px;line-height:1.4;margin:0;padding:10px 0}
+.optimizationScreen input[type=radio],.optimizationScreen input[type=checkbox]{width:20px;height:20px;flex:0 0 20px;margin:0;accent-color:#111}
+.optimizationScreen select{width:100%;border:1px solid #ccc;border-radius:8px;padding:13px;background:#fff;font:inherit;color:#111}
+.optimizationScreen button,.optimizationScreen input{border-radius:8px}
+.optimizationScreen button:disabled{cursor:default}.optimizationScreen a{color:#325b6d}
+.optimizationActions button{font-size:15px}.optimizationActions{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.optimizationError{padding:12px 0;color:#a32323;font-size:15px;line-height:1.5}
+.locationChoice{border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:20px 0;margin-top:18px}
+.locationChoice p{margin:8px 0}.locationSearch{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.locationSearch button{width:auto;padding:13px;font-size:15px}.locationSearch input{min-width:0}
+.locationCandidate{display:flex;align-items:flex-start;gap:10px;border-top:1px solid #eee;padding:14px 0;font-size:14px;line-height:1.5;font-weight:500}
+.optimizationMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-block:1px solid #ddd;margin-top:16px;padding:16px 0}
+.optimizationMetrics span{display:block;font-size:12px;color:#666}.optimizationMetrics strong{display:block;font-size:19px;margin-top:5px;font-variant-numeric:tabular-nums}
+.optimizationMetrics .saving strong{color:#256039}.optimizationStopPreview{padding-left:30px;margin:16px 0 20px}
+.optimizationStopPreview li{padding:10px 0 10px 4px;border-bottom:1px solid #eee;font-size:15px}
+.optimizationStopPreview small{display:block;font-size:13px;color:#666;margin-top:3px}.mapAttribution{margin:22px 0 0;color:#777;line-height:1.7}
+.srOnly{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:430px){.optimizationScreen{padding:16px}.optimizationMetrics{gap:6px}.optimizationMetrics strong{font-size:17px}}
