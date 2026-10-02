@@ -72,6 +72,7 @@
     <div class="input-group"><label>Kundenname / Firma</label><input id="customerName" placeholder="z. B. Friseur Milano"></div>
     <div class="input-group"><label>Adresse</label><input id="streetAddress" placeholder="z. B. Rennbahnweg 25"></div>
     <div class="input-group"><label>Postleitzahl / Ort</label><input id="postalCity" placeholder="z. B. 1220 Wien"></div>
+    <div class="input-group"><label for="manualDeliveryType">Lieferart</label><input id="manualDeliveryType" placeholder="z. B. Kollektion 38 B"></div>
     <button id="addManualStop" class="secondary">+ Stopp hinzufügen</button>
     <div id="manualStops" class="stop-list"></div>
     <button id="saveManual" class="primary">Tour speichern & öffnen</button>
@@ -117,6 +118,7 @@
       <div class="stopState" id="stopState">OFFEN</div>
       <div class="customer" id="customer"></div>
       <div class="address" id="address"></div>
+      <div class="deliveryDetail"><span>Lieferart</span><strong id="deliveryType"></strong><p id="deliveryReview" class="deliveryReview hidden"></p></div>
 
       <div class="navGrid">
         <button id="waze" class="primary">Waze</button>
@@ -207,6 +209,7 @@
     <div class="input-group"><label>Kundenname / Firma</label><input id="editName"></div>
     <div class="input-group"><label>Adresse</label><input id="editAddress"></div>
     <div class="input-group"><label>Postleitzahl / Ort</label><input id="editPostal"></div>
+    <div class="input-group"><label for="editDeliveryType">Lieferart</label><input id="editDeliveryType" placeholder="z. B. Lieferpaket"></div>
     <div class="input-group"><label>Notiz</label><textarea id="editNote" rows="4"></textarea></div>
     <button id="saveEditedStop" class="primary">Speichern</button>
     <button id="removeEditedStop" class="danger">Stopp löschen</button>
@@ -218,6 +221,7 @@
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="routing.js?v=5.8"></script>
 <script src="route-map.js?v=5.8"></script>
+<script src="delivery-import.js?v=5.8"></script>
 <script src="app.js?v=5.8"></script>
 <script src="optimizer-ui.js?v=5.8"></script>
 </body>

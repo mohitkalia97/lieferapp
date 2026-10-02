@@ -28,7 +28,7 @@ function checkOptimizationAbort(signal){
 }
 
 function tourFingerprint(tour){
-  return JSON.stringify({id:tour.id,stops:tour.stops.map(s=>[s.id,s.name,s.address,s.postal,s.status,s.note,s.completedAt])});
+  return JSON.stringify({id:tour.id,stops:tour.stops.map(s=>[s.id,s.name,s.address,s.postal,s.status,s.note,s.completedAt,s.deliveryType,s.deliveryReview,s.deliverySource])});
 }
 
 function renderOptimizationActions(){

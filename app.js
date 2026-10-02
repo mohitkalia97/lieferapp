@@ -19,7 +19,8 @@ function now(){return new Date().toISOString();}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 function fullAddress(s){return [s.address,s.postal].filter(Boolean).join(', ');}
 function googleQuery(s){return [s.name,s.address,s.postal].filter(Boolean).join(', ');}
-function stopTemplate(s={}){return {id:s.id||uid(),name:s.name||'',address:s.address||'',postal:s.postal||'',note:s.note||'',status:s.status||'pending',completedAt:s.completedAt||null,needsReview:!!s.needsReview};}
+function stopTemplate(s={}){return {id:s.id||uid(),name:s.name||'',address:s.address||'',postal:s.postal||'',deliveryType:typeof s.deliveryType==='string'?s.deliveryType:'',deliveryReview:typeof s.deliveryReview==='string'?s.deliveryReview:'',deliverySource:typeof s.deliverySource==='string'?s.deliverySource:'',note:s.note||'',status:s.status||'pending',completedAt:s.completedAt||null,needsReview:!!s.needsReview};}
+function deliveryLabel(stop){return stop.deliveryType||'Nicht angegeben';}
 function normalizeTour(t){
   return {
     id:t.id||uid(), name:t.name||'Unbenannte Tour', source:t.source||'manual', createdAt:t.createdAt||now(), updatedAt:t.updatedAt||now(),
@@ -107,7 +108,7 @@ function renderManual(){
   const wrap=$('manualStops'); wrap.innerHTML='';
   manualStops.forEach((s,i)=>{
     const d=document.createElement('div'); d.className='draft-stop';
-    d.innerHTML=`<div class="stopText"><strong>${esc(s.name||'Ohne Kundenname')}</strong><small>${esc(fullAddress(s))}</small></div><button class="mini danger" data-rm="${i}">×</button>`;
+    d.innerHTML=`<div class="stopText"><strong>${esc(s.name||'Ohne Kundenname')}</strong><small>${esc(fullAddress(s))}</small><small>Lieferart: ${esc(deliveryLabel(s))}</small></div><button class="mini danger" data-rm="${i}">×</button>`;
     wrap.appendChild(d);
   });
   wrap.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{manualStops.splice(+b.dataset.rm,1);renderManual();});
@@ -118,12 +119,16 @@ function renderImported(){
   const wrap=$('importStops');wrap.innerHTML='';
   importedStops.forEach((s,i)=>{
     const d=document.createElement('div');d.className='import-stop';
-    d.innerHTML=`<div class="stopNumber">${i+1}</div><div class="editFields ${s.needsReview?'needsReview':''}">${s.needsReview?'<div class="reviewFlag">⚠ Bitte prüfen</div>':''}<input data-field="name" data-i="${i}" value="${esc(s.name)}" placeholder="Kundenname / Firma"><input data-field="address" data-i="${i}" value="${esc(s.address)}" placeholder="Adresse"><input data-field="postal" data-i="${i}" value="${esc(s.postal)}" placeholder="PLZ / Ort"></div><button class="mini danger" data-import-remove="${i}">×</button>`;
+    d.innerHTML=`<div class="stopNumber">${i+1}</div><div class="editFields ${s.needsReview||s.deliveryReview?'needsReview':''}">${s.needsReview?'<div class="reviewFlag">⚠ Bitte prüfen</div>':''}<label>Kundenname<input data-field="name" data-i="${i}" value="${esc(s.name)}" placeholder="Kundenname / Firma"></label><label>Adresse<input data-field="address" data-i="${i}" value="${esc(s.address)}" placeholder="Straße und Hausnummer"></label><label>PLZ / Ort<input data-field="postal" data-i="${i}" value="${esc(s.postal)}" placeholder="PLZ / Ort"></label><label>Lieferart<input data-field="deliveryType" data-i="${i}" value="${esc(s.deliveryType)}" placeholder="Nicht erkannt"></label><p class="deliveryReview ${s.deliveryReview?'':'hidden'}" data-delivery-review="${i}">${esc(s.deliveryReview)}</p>${s.deliverySource?`<small class="deliverySource">PDF: ${esc(s.deliverySource)}</small>`:''}</div><button class="mini danger" data-import-remove="${i}">×</button>`;
     wrap.appendChild(d);
   });
   wrap.querySelectorAll('input[data-field]').forEach(inp=>inp.oninput=()=>{
     const i=+inp.dataset.i; importedStops[i][inp.dataset.field]=inp.value.trimStart();
     importedStops[i].needsReview=!importedStops[i].address.trim()||!importedStops[i].postal.trim();
+    if(inp.dataset.field==='deliveryType'){
+      importedStops[i].deliveryReview=DeliveryImport.reviewValue(inp.value);
+      const warning=wrap.querySelector(`[data-delivery-review="${i}"]`);warning.textContent=importedStops[i].deliveryReview;warning.classList.toggle('hidden',!warning.textContent);
+    }
   });
   wrap.querySelectorAll('[data-import-remove]').forEach(b=>b.onclick=()=>{importedStops.splice(+b.dataset.importRemove,1);renderImported();});
 }
@@ -145,6 +150,7 @@ function renderRoute(){
   currentTour.currentIndex=Math.max(0,idx);
   const s=currentTour.stops[currentTour.currentIndex];
   $('customer').textContent=s.name||'Kunde'; $('address').textContent=fullAddress(s)||'Adresse fehlt';
+  $('deliveryType').textContent=deliveryLabel(s);$('deliveryReview').textContent=s.deliveryReview||'';$('deliveryReview').classList.toggle('hidden',!s.deliveryReview);
   const stateText={pending:'OFFEN',later:'SPÄTER',done:'ZUGESTELLT',not_delivered:'NICHT ZUGESTELLT'}[s.status]||'OFFEN';
   $('stopState').className=`stopState ${s.status}`;
   $('stopState').textContent=stateText; $('stopNote').value=s.note||''; $('noteDetails').open=!!s.note;
@@ -183,7 +189,7 @@ function renderTourList(){
   currentTour.stops.forEach((s,i)=>{
     const statusLabel={pending:'offen',later:'später',done:'zugestellt',not_delivered:'nicht zugestellt'}[s.status]||s.status;
     const d=document.createElement('div');d.className='tourRow'+(i===currentTour.currentIndex?' current':'');
-    d.innerHTML=`<div class="num">${i+1}</div><div class="main" data-jump="${i}"><strong>${esc(s.name||'Kunde')}</strong><small>${esc(fullAddress(s)||'Adresse fehlt')}</small><span class="badge ${s.status}">${statusLabel}</span></div><div class="tourRowActions"><button class="secondary" data-up="${i}" ${i===0?'disabled':''}>↑</button><button class="secondary" data-down="${i}" ${i===currentTour.stops.length-1?'disabled':''}>↓</button><button class="secondary" data-edit="${i}">✎</button></div>`;
+    d.innerHTML=`<div class="num">${i+1}</div><div class="main" data-jump="${i}"><strong>${esc(s.name||'Kunde')}</strong><small>${esc(fullAddress(s)||'Adresse fehlt')}</small><small class="deliveryList">Lieferart: ${esc(deliveryLabel(s))}</small>${s.deliveryReview?`<small class="deliveryReview">${esc(s.deliveryReview)}</small>`:''}<span class="badge ${s.status}">${statusLabel}</span></div><div class="tourRowActions"><button class="secondary" data-up="${i}" ${i===0?'disabled':''}>↑</button><button class="secondary" data-down="${i}" ${i===currentTour.stops.length-1?'disabled':''}>↓</button><button class="secondary" data-edit="${i}">✎</button></div>`;
     wrap.appendChild(d);
   });
   wrap.querySelectorAll('[data-jump]').forEach(el=>el.onclick=async()=>{currentTour.currentIndex=+el.dataset.jump;await saveCurrent();renderRoute();});
@@ -197,6 +203,7 @@ function openEditStop(index,returnTo='route',mode='edit'){
   editContext={index,returnTo,mode};
   const s=mode==='add'?stopTemplate():currentTour.stops[index];
   $('editStopTitle').textContent=mode==='add'?'Stopp hinzufügen':'Stopp bearbeiten';$('editName').value=s.name||'';$('editAddress').value=s.address||'';$('editPostal').value=s.postal||'';$('editNote').value=s.note||'';$('removeEditedStop').classList.toggle('hidden',mode==='add');show('editStopScreen');
+  $('editDeliveryType').value=s.deliveryType||'';
 }
 
 async function advanceAfterStatus(status){
@@ -225,17 +232,33 @@ function ocrLayoutText(data){
   return lines.map(line=>line.words.sort((a,b)=>a.x-b.x).map(w=>w.text).join(' ')).join('\n');
 }
 async function ocrPdf(file){
-  const bytes=new Uint8Array(await file.arrayBuffer()); const pdf=await pdfjsLib.getDocument({data:bytes}).promise; let allText='';
-  for(let p=1;p<=pdf.numPages;p++){
-    setImportProgress(5+Math.round(((p-1)/pdf.numPages)*78),`Seite ${p} von ${pdf.numPages} wird gelesen…`);
-    const page=await pdf.getPage(p),viewport=page.getViewport({scale:2.6});
-    const source=document.createElement('canvas'),sctx=source.getContext('2d',{willReadFrequently:true});source.width=Math.floor(viewport.width);source.height=Math.floor(viewport.height);await page.render({canvasContext:sctx,viewport}).promise;
-    const cropX=Math.floor(source.width*.012),cropY=Math.floor(source.height*.075),cropW=Math.floor(source.width*.36),cropH=Math.floor(source.height*.87);
-    const canvas=document.createElement('canvas');canvas.width=cropW;canvas.height=cropH;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,cropX,cropY,cropW,cropH,0,0,cropW,cropH);
-    const img=ctx.getImageData(0,0,canvas.width,canvas.height),d=img.data;for(let i=0;i<d.length;i+=4){const g=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);let v=g>210?255:g<145?0:Math.max(0,Math.min(255,Math.round((g-145)*4.2)));d[i]=d[i+1]=d[i+2]=v;}ctx.putImageData(img,0,0);
-    const result=await Tesseract.recognize(canvas,'deu',{logger:m=>{if(m.status==='recognizing text'){const base=5+((p-1)/pdf.numPages)*78,share=78/pdf.numPages;setImportProgress(Math.round(base+(m.progress||0)*share),`Seite ${p}/${pdf.numPages}: ${Math.round((m.progress||0)*100)}%`);}}});
-    allText+=`\n===PAGE_${p}===\n${ocrLayoutText(result.data)||result.data.text}\n`;
-  }return allText;
+  const bytes=new Uint8Array(await file.arrayBuffer()),pdf=await pdfjsLib.getDocument({data:bytes}).promise,stops=[];
+  const parser={parseStops,looksLikeStopHeader,parsePostal,normalizeLines};
+  let worker=null,ocrPage=0;
+  try{
+    for(let p=1;p<=pdf.numPages;p++){
+      setImportProgress(5+Math.round(((p-1)/pdf.numPages)*78),`Seite ${p} von ${pdf.numPages} wird gelesen…`);
+      const page=await pdf.getPage(p),viewport=page.getViewport({scale:2.6});
+      const content=await page.getTextContent();
+      let pageStops=DeliveryImport.parsePage(DeliveryImport.pdfWords(content.items,viewport),viewport.width,parser);
+      if(!pageStops.length){
+        if(!window.Tesseract)throw new Error('Texterkennung konnte nicht geladen werden. Bitte Internet prüfen.');
+        ocrPage=p;
+        if(!worker){
+          worker=await Tesseract.createWorker('deu',1,{logger:m=>{if(m.status==='recognizing text')setImportProgress(Math.round(5+((ocrPage-1+(m.progress||0))/pdf.numPages)*78),`Seite ${ocrPage}/${pdf.numPages}: ${Math.round((m.progress||0)*100)}%`);}});
+          await worker.setParameters({tessedit_pageseg_mode:3});
+        }
+        const canvas=document.createElement('canvas');canvas.width=Math.floor(viewport.width);canvas.height=Math.floor(viewport.height);
+        try{
+          await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+          const {data}=await worker.recognize(canvas);
+          pageStops=DeliveryImport.parsePage(data.words||[],canvas.width,parser);
+        }finally{canvas.width=0;canvas.height=0;}
+      }
+      stops.push(...pageStops);page.cleanup();
+    }
+    return stops;
+  }finally{if(worker)await worker.terminate();await pdf.destroy();}
 }
 function cleanLine(s){return String(s||'').replace(/[|]+/g,' ').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
 function isPageMarker(s){return /^===PAGE_\d+===$/.test(cleanLine(s));}
@@ -288,11 +311,32 @@ $('viewFinishedList').onclick=()=>renderTourList();
 $('finishToHome').onclick=()=>renderHome();
 $('backToRoute').onclick=()=>renderRoute();
 
-$('addManualStop').onclick=()=>{const s=stopTemplate({name:$('customerName').value.trim(),address:$('streetAddress').value.trim(),postal:$('postalCity').value.trim()});if(!s.address)return alert('Bitte eine Adresse eingeben.');manualStops.push(s);$('customerName').value='';$('streetAddress').value='';$('postalCity').value='';renderManual();};
+$('addManualStop').onclick=()=>{const deliveryType=$('manualDeliveryType').value.trim();const s=stopTemplate({name:$('customerName').value.trim(),address:$('streetAddress').value.trim(),postal:$('postalCity').value.trim(),deliveryType,deliveryReview:deliveryType?DeliveryImport.reviewValue(deliveryType):''});if(!s.address)return alert('Bitte eine Adresse eingeben.');manualStops.push(s);$('customerName').value='';$('streetAddress').value='';$('postalCity').value='';$('manualDeliveryType').value='';renderManual();};
 $('saveManual').onclick=async()=>{if(!manualStops.length)return alert('Bitte mindestens einen Stopp hinzufügen.');const name=$('manualTourName').value.trim()||`Tour ${new Date().toLocaleDateString('de-AT')}`;currentTour=normalizeTour({name,source:'manual',stops:manualStops});manualStops=[];await saveCurrent();renderRoute();};
 
 $('importFile').onchange=()=>{const f=$('importFile').files[0];$('importFileName').textContent=f?`${f.name} · ${Math.max(1,Math.round(f.size/1024))} KB`:'Noch keine Datei ausgewählt';if(f&&!$('importTourName').value)$('importTourName').value=f.name.replace(/\.[^.]+$/,'');};
-$('runImport').onclick=async()=>{const file=$('importFile').files[0];if(!file)return alert('Bitte zuerst eine Datei auswählen.');importedStops=[];$('importResult').classList.add('hidden');setImportProgress(2,'Datei wird vorbereitet…');try{let text='',ext=(file.name.split('.').pop()||'').toLowerCase();if(ext==='txt'||ext==='csv'){text=await file.text();setImportProgress(80,'Text wird ausgewertet…');}else if(file.type==='application/pdf'||ext==='pdf'){if(!window.pdfjsLib||!window.Tesseract)throw new Error('OCR konnte nicht geladen werden. Bitte Internet prüfen.');text=await ocrPdf(file);}else if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('OCR konnte nicht geladen werden.');const res=await Tesseract.recognize(file,'deu',{logger:m=>{if(m.status==='recognizing text')setImportProgress(10+Math.round((m.progress||0)*70),'Text wird erkannt…');}});text=res.data.text;}else throw new Error('Dateiformat nicht unterstützt.');setImportProgress(88,'Kunden und Adressen werden erkannt…');importedStops=parseStops(text).map(stopTemplate);if(!importedStops.length)throw new Error('Keine Stopps erkannt.');setImportProgress(100,`${importedStops.length} Stopps erkannt.`);renderImported();$('importResult').classList.remove('hidden');}catch(e){console.error(e);alert('Import fehlgeschlagen: '+e.message);$('importProgressWrap').classList.add('hidden');}};
+$('runImport').onclick=async()=>{
+  const file=$('importFile').files[0];if(!file)return alert('Bitte zuerst eine Datei auswählen.');
+  if($('runImport').disabled)return;
+  $('runImport').disabled=true;$('importFile').disabled=true;
+  importedStops=[];$('importResult').classList.add('hidden');setImportProgress(2,'Datei wird vorbereitet…');
+  try{
+    let text='',parsed=null;const ext=(file.name.split('.').pop()||'').toLowerCase();
+    if(ext==='txt'||ext==='csv'){text=await file.text();setImportProgress(80,'Text wird ausgewertet…');}
+    else if(file.type==='application/pdf'||ext==='pdf'){
+      if(!window.pdfjsLib)throw new Error('PDF-Leser konnte nicht geladen werden. Bitte Internet prüfen.');
+      parsed=await ocrPdf(file);
+    }else if(file.type.startsWith('image/')){
+      if(!window.Tesseract)throw new Error('OCR konnte nicht geladen werden.');
+      const res=await Tesseract.recognize(file,'deu',{logger:m=>{if(m.status==='recognizing text')setImportProgress(10+Math.round((m.progress||0)*70),'Text wird erkannt…');}});text=res.data.text;
+    }else throw new Error('Dateiformat nicht unterstützt.');
+    setImportProgress(88,'Kunden, Adressen und Lieferarten werden erkannt…');
+    importedStops=(parsed||parseStops(text)).map(stopTemplate);
+    if(!importedStops.length)throw new Error('Keine Stopps erkannt.');
+    setImportProgress(100,`${importedStops.length} Stopps erkannt.`);renderImported();$('importResult').classList.remove('hidden');
+  }catch(e){console.error(e);alert('Import fehlgeschlagen: '+e.message);$('importProgressWrap').classList.add('hidden');}
+  finally{$('runImport').disabled=false;$('importFile').disabled=false;}
+};
 $('saveImported').onclick=async()=>{const stops=importedStops.map(stopTemplate).filter(s=>s.name||s.address||s.postal);if(!stops.length)return alert('Keine gültigen Stopps vorhanden.');const name=$('importTourName').value.trim()||`Import ${new Date().toLocaleDateString('de-AT')}`;currentTour=normalizeTour({name,source:'import',stops});importedStops=[];await saveCurrent();renderRoute();};
 $('clearImport').onclick=()=>{importedStops=[];$('importResult').classList.add('hidden');$('importProgressWrap').classList.add('hidden');$('importFile').value='';$('importFileName').textContent='Noch keine Datei ausgewählt';};
 
@@ -310,13 +354,13 @@ $('resetStatuses').onclick=async()=>{if(!confirm('Alle Zustell-Status dieser Tou
 $('deleteCurrentTour').onclick=async()=>{if(!currentTour||!confirm(`Tour „${currentTour.name}“ wirklich löschen?`))return;const id=currentTour.id;await dbDelete(TOUR_STORE,id);currentTour=null;await setMeta('currentTourId',null);renderHome();};
 
 $('cancelEditStop').onclick=()=>editContext.returnTo==='tourListScreen'?renderTourList():renderRoute();
-$('saveEditedStop').onclick=async()=>{const s=stopTemplate({name:$('editName').value.trim(),address:$('editAddress').value.trim(),postal:$('editPostal').value.trim(),note:$('editNote').value.trim()});if(!s.address&&!s.name)return alert('Bitte mindestens Name oder Adresse eingeben.');if(editContext.mode==='add'){currentTour.stops.push(s);}else{const old=currentTour.stops[editContext.index];currentTour.stops[editContext.index]={...old,...s,id:old.id,status:old.status,completedAt:old.completedAt};}await saveCurrent();editContext.returnTo==='tourListScreen'?renderTourList():renderRoute();};
+$('saveEditedStop').onclick=async()=>{const deliveryType=$('editDeliveryType').value.trim();const s=stopTemplate({name:$('editName').value.trim(),address:$('editAddress').value.trim(),postal:$('editPostal').value.trim(),deliveryType,deliveryReview:deliveryType?DeliveryImport.reviewValue(deliveryType):'',note:$('editNote').value.trim()});if(!s.address&&!s.name)return alert('Bitte mindestens Name oder Adresse eingeben.');if(editContext.mode==='add'){currentTour.stops.push(s);}else{const old=currentTour.stops[editContext.index];currentTour.stops[editContext.index]={...old,...s,id:old.id,status:old.status,completedAt:old.completedAt,deliverySource:old.deliverySource,deliveryReview:deliveryType===old.deliveryType?old.deliveryReview:s.deliveryReview};}await saveCurrent();editContext.returnTo==='tourListScreen'?renderTourList():renderRoute();};
 $('removeEditedStop').onclick=async()=>{if(editContext.mode==='add')return;if(!confirm('Diesen Stopp wirklich löschen?'))return;currentTour.stops.splice(editContext.index,1);currentTour.currentIndex=Math.min(currentTour.currentIndex,Math.max(0,currentTour.stops.length-1));await saveCurrent();renderTourList();};
 
 function downloadBlob(name,type,content){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('exportBackup').onclick=async()=>{const tours=await dbGetAll(TOUR_STORE),meta={currentTourId:await getMeta('currentTourId')};downloadBlob(`LieferRoute-Backup-${new Date().toISOString().slice(0,10)}.json`,'application/json',JSON.stringify({version:5,exportedAt:now(),tours,meta},null,2));};
 $('restoreFile').onchange=async()=>{const f=$('restoreFile').files[0];if(!f)return;try{const data=JSON.parse(await f.text());if(!Array.isArray(data.tours))throw new Error('Ungültiges Backup');if(!confirm(`${data.tours.length} Touren aus Backup importieren? Vorhandene Touren bleiben erhalten.`))return;for(const t of data.tours){const n=normalizeTour(t);const exists=await dbGet(TOUR_STORE,n.id);if(exists)n.id=uid();await dbPut(TOUR_STORE,n);}alert('Backup importiert.');$('restoreFile').value='';await renderHome();}catch(e){alert('Backup konnte nicht gelesen werden: '+e.message);}};
-$('exportCsv').onclick=()=>{if(!currentTour)return alert('Keine aktive Tour.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const rows=[['Nr','Kunde','Adresse','PLZ Ort','Status','Notiz'],...currentTour.stops.map((s,i)=>[i+1,s.name,s.address,s.postal,s.status,s.note])];downloadBlob(`${currentTour.name.replace(/[^a-z0-9äöüß_-]+/gi,'_')}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.map(r=>r.map(q).join(';')).join('\n'));};
+$('exportCsv').onclick=()=>{if(!currentTour)return alert('Keine aktive Tour.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const rows=[['Nr','Kunde','Adresse','PLZ Ort','Lieferart','Status','Notiz'],...currentTour.stops.map((s,i)=>[i+1,s.name,s.address,s.postal,s.deliveryType,s.status,s.note])];downloadBlob(`${currentTour.name.replace(/[^a-z0-9äöüß_-]+/gi,'_')}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.map(r=>r.map(q).join(';')).join('\n'));};
 
 async function init(){
   try{db=await openDB();await migrateV4();await renderHome();}
