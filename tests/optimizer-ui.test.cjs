@@ -159,6 +159,25 @@ test('a stale unchanged preview cannot overwrite edits or delivery progress',asy
   assert.equal(context.$('applyOptimization').disabled,false);
 });
 
+test('editing a delivery type invalidates an existing optimization preview',async()=>{
+  const context=confirmationEnvironment(true);
+  context.currentTour.stops[1].deliveryType='Kollektion 38 B';
+  await context.$('applyOptimization').onclick();
+  assert.equal(context.saves.length,0);
+  assert.match(context.$('optimizationError').textContent,/Tour wurde geändert/);
+});
+
+test('optimized stop order preserves delivery type and its PDF review details',async()=>{
+  const context=confirmationEnvironment(true),stop=context.currentTour.stops[1];
+  Object.assign(stop,{deliveryType:'Kollektion 38 B',deliveryReview:'Prüfen',deliverySource:'Kollektion (B) | 38/37'});
+  context.testPreview.fingerprint=context.tourFingerprint(context.currentTour);
+  await context.$('applyOptimization').onclick();
+  const reordered=context.currentTour.stops.find(s=>s.id===stop.id);
+  assert.equal(reordered.deliveryType,stop.deliveryType);
+  assert.equal(reordered.deliveryReview,stop.deliveryReview);
+  assert.equal(reordered.deliverySource,stop.deliverySource);
+});
+
 test('a failed confirmation keeps the preview available for retry',async()=>{
   const context=confirmationEnvironment(),before=context.currentTour;
   context.saveOrder=async()=>{throw new Error('Speichern fehlgeschlagen');};

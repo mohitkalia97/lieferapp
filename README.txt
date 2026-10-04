@@ -87,3 +87,20 @@ V5.8:
   OpenStreetMap-Kacheln benötigen Internet und werden nicht offline vorab geladen.
   https://leafletjs.com/reference.html
   https://operations.osmfoundation.org/policies/tiles/
+
+V5.11 Lieferart beim PDF-Import:
+- Zu jedem Kunden wird die Lieferart aus der Spalte "Lieferung" übernommen:
+  "Lieferpaket", "Kollektion 38 A" (Zahl aus "lief." vor dem Schrägstrich,
+  Buchstabe aus der Klammer), "Ladies Kollektion 37 L", "Wunsch-Kollektion 38"
+  (ohne erfundenen Buchstaben und mit Prüfhinweis) oder der dort stehende Text,
+  z.B. "Punktemappe".
+- Schiefe Scans werden entzerrt; die Zellen "Lieferung" und "lief." werden zusätzlich
+  einzeln gelesen. Widersprechen sich die Lesungen, wird keine Zahl bzw. kein
+  Buchstabe gewählt, sondern der Kunde zur Prüfung markiert.
+- Von der Texterkennung übersprungene Tabellenbereiche werden erneut gelesen,
+  damit keine Kunden fehlen.
+- Kunden- und Lieferspalten werden getrennt gelesen. Die PDF-Datei und die
+  Texterkennung bleiben dabei lokal; nur Bibliotheken und Sprachmodelle werden geladen.
+- Lieferart ist in Importkontrolle, Tourliste, Zustellansicht, Bearbeitung,
+  JSON-Backup und CSV-Export enthalten. Bestehende Touren bleiben kompatibel;
+  für die automatische Ergänzung ihrer Lieferarten die Original-PDF neu importieren.

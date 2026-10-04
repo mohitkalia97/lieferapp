@@ -129,6 +129,8 @@ function renderImported(){
       importedStops[i].deliveryReview=DeliveryImport.reviewValue(inp.value);
       const warning=wrap.querySelector(`[data-delivery-review="${i}"]`);warning.textContent=importedStops[i].deliveryReview;warning.classList.toggle('hidden',!warning.textContent);
     }
+    inp.closest('.editFields').classList.toggle('needsReview',importedStops[i].needsReview||!!importedStops[i].deliveryReview);
+    inp.closest('.editFields').querySelector('.reviewFlag')?.classList.toggle('hidden',!importedStops[i].needsReview);
   });
   wrap.querySelectorAll('[data-import-remove]').forEach(b=>b.onclick=()=>{importedStops.splice(+b.dataset.importRemove,1);renderImported();});
 }
@@ -234,7 +236,7 @@ function ocrLayoutText(data){
 async function ocrPdf(file){
   const bytes=new Uint8Array(await file.arrayBuffer()),pdf=await pdfjsLib.getDocument({data:bytes}).promise,stops=[];
   const parser={parseStops,looksLikeStopHeader,parsePostal,normalizeLines};
-  let worker=null,ocrPage=0;
+  let worker=null,ocrPage=0,cellPass=false;
   try{
     for(let p=1;p<=pdf.numPages;p++){
       setImportProgress(5+Math.round(((p-1)/pdf.numPages)*78),`Seite ${p} von ${pdf.numPages} wird gelesen…`);
@@ -245,14 +247,49 @@ async function ocrPdf(file){
         if(!window.Tesseract)throw new Error('Texterkennung konnte nicht geladen werden. Bitte Internet prüfen.');
         ocrPage=p;
         if(!worker){
-          worker=await Tesseract.createWorker('deu',1,{logger:m=>{if(m.status==='recognizing text')setImportProgress(Math.round(5+((ocrPage-1+(m.progress||0))/pdf.numPages)*78),`Seite ${ocrPage}/${pdf.numPages}: ${Math.round((m.progress||0)*100)}%`);}});
-          await worker.setParameters({tessedit_pageseg_mode:3});
+          worker=await Tesseract.createWorker('deu',1,{logger:m=>{if(m.status==='recognizing text'&&!cellPass)setImportProgress(Math.round(5+((ocrPage-1+(m.progress||0))/pdf.numPages)*78),`Seite ${ocrPage}/${pdf.numPages}: ${Math.round((m.progress||0)*100)}%`);}});
+          await worker.setParameters({tessedit_pageseg_mode:'3'});
         }
         const canvas=document.createElement('canvas');canvas.width=Math.floor(viewport.width);canvas.height=Math.floor(viewport.height);
         try{
           await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
           const {data}=await worker.recognize(canvas);
-          pageStops=DeliveryImport.parsePage(data.words||[],canvas.width,parser);
+          let words=data.words||[];const options={lines:data.lines||[]};
+          const pageRead=DeliveryImport.parsePage(words,canvas.width,parser,options);
+          cellPass=true;
+          try{
+            const layout=DeliveryImport.columns(words,canvas.width,options.lines);
+            if(layout.found){
+              const customer=document.createElement('canvas');customer.width=Math.floor(layout.deliveryStart);customer.height=canvas.height;
+              try{
+                customer.getContext('2d').drawImage(canvas,0,0,customer.width,customer.height,0,0,customer.width,customer.height);
+                await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+                const {data:read}=await worker.recognize(customer);
+                if(read.words?.length)words=[...words.filter(w=>w.bbox.x0>=customer.width),...read.words];
+              }finally{customer.width=0;customer.height=0;}
+            }
+            // Blocks the page OCR skipped are read again on their own (sparse text mode).
+            const regions=DeliveryImport.unreadRegions(words,canvas.width,parser,options);
+            if(regions.length)await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:''});
+            for(const region of regions){
+              const cell=DeliveryImport.renderCell(canvas,region,document);
+              try{const {data:extra}=await worker.recognize(cell);words=DeliveryImport.mergeRegionWords(words,region,extra.words||[]);}
+              finally{cell.width=0;cell.height=0;}
+            }
+            pageStops=DeliveryImport.parsePage(words,canvas.width,parser,options);
+            DeliveryImport.retainPageEvidence(pageStops,pageRead);
+            // Lieferung and lief. cells are read again individually and compared.
+            setImportProgress(Math.round(5+(p/pdf.numPages)*78),`Seite ${p}/${pdf.numPages}: Lieferarten werden geprüft…`);
+            await DeliveryImport.refineStops(pageStops,async box=>{
+              await worker.setParameters(box.kind==='number'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789/-*'}:{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
+              const cell=DeliveryImport.renderCell(canvas,box,document);
+              try{const {data:read}=await worker.recognize(cell);return {text:read.text||'',confidence:read.confidence};}
+              finally{cell.width=0;cell.height=0;}
+            });
+          }finally{
+            cellPass=false;
+            await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});
+          }
         }finally{canvas.width=0;canvas.height=0;}
       }
       stops.push(...pageStops);page.cleanup();
