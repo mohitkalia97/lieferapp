@@ -290,27 +290,42 @@
   const tidyCustomerLine=text=>clean(clean(text).replace(/^[^A-Za-zÄÖÜäöü0-9]+/,'').replace(/[—–-]+(?=K\s*N)/,' ')
     .replace(/(?:\s+[:;|!¦'‘’`,_il])+\s*$/,''));
 
-  function deliveryForBand(dWords,nWords,anchor,from,to,layout,kWords=[]){
+  // "Behaltemappe COL" is always the second delivery line of a customer, never the main one.
+  const isCompanion=text=>/Behältemappe/.test(canonicalLabel(text||''));
+  function deliveryForBand(dWords,nWords,anchor,from,to,layout,kWords=[],lineGap=null){
     const rows=group(dWords.filter(w=>w.yd>=from&&w.yd<to&&!junk(w)));
     // On rotated pages a table heading ("Lieferung") can fall into the first customer's band.
     const labelled=rows.filter(r=>/[A-Za-zÄÖÜäöü]{3}/.test(rowText(r.words))&&!headingText(rowText(r.words)));
-    const main=labelled.filter(r=>Math.abs(r.yd-anchor.yd)<=Math.max(r.h,anchor.h)*1.5).sort((a,b)=>Math.abs(a.yd-anchor.yd)-Math.abs(b.yd-anchor.yd))[0]||labelled[0];
+    const primary=labelled.filter(r=>!isCompanion(rowText(r.words))),pool=primary.length?primary:labelled;
+    const main=pool.filter(r=>Math.abs(r.yd-anchor.yd)<=Math.max(r.h,anchor.h)*1.5).sort((a,b)=>Math.abs(a.yd-anchor.yd)-Math.abs(b.yd-anchor.yd))[0]||pool[0];
+    // Only the Behaltemappe line was read: the real delivery line is the one directly above it.
+    const companionOnly=!!main&&isCompanion(rowText(main.words));
     const h=median((main||anchor).words.map(w=>w.h));
     // Bent paper: the row's own words (label and class value) give its real course,
     // so the "lief." cell is cut along that line and not along the page average.
     let slope=layout.slopeAt(main?main.y:anchor.y),lineY=main?main.yd:anchor.yd;
     if(main){
-      const fit=[...main.words,...kWords.filter(w=>Math.abs(w.yd-main.yd)<=h*1.5)].map(w=>({x:(w.bbox.x0+w.bbox.x1)/2,y:w.y}));
+      // Class values ("neu", "3") help, but only those closer to this line than to another one.
+      const others=labelled.filter(r=>r!==main);
+      const own=w=>Math.abs(w.yd-main.yd)<=h*1.5&&others.every(r=>Math.abs(w.yd-r.yd)>Math.abs(w.yd-main.yd));
+      const fit=[...main.words,...kWords.filter(own)].map(w=>({x:(w.bbox.x0+w.bbox.x1)/2,y:w.y}));
       const pairs=[];
       for(let i=0;i<fit.length;i++)for(let j=i+1;j<fit.length;j++)if(Math.abs(fit[j].x-fit[i].x)>h*4)pairs.push((fit[j].y-fit[i].y)/(fit[j].x-fit[i].x));
-      const own=median(pairs);
-      if(own!==null&&Math.abs(own-slope)<=0.1){slope=own;lineY=median(fit.map(p=>p.y-own*p.x));}
+      const rowSlope=median(pairs);
+      if(rowSlope!==null&&Math.abs(rowSlope-slope)<=0.1){slope=rowSlope;lineY=median(fit.map(p=>p.y-rowSlope*p.x));}
+      if(companionOnly)lineY-=lineGap||h*1.3;
     }
     const onRow=w=>Math.abs(w.y-(lineY+slope*(w.bbox.x0+w.bbox.x1)/2))<=Math.max(w.h,h)*0.9;
     // The cell is cut where the leaning column actually is at this row.
     const cell=(x0,x1)=>{const y=lineY+slope*(x0+x1)/2,px=x=>layout.pageX?layout.pageX(x,y):x;return {x0:px(x0),x1:px(x1),yd:lineY};};
-    const cells={slope,h,label:cell(layout.deliveryStart,layout.deliveryEnd),number:cell(layout.numberStart,layout.numberEnd)};
+    const cells={slope,h,gap:lineGap||h*1.3,label:cell(layout.deliveryStart,layout.deliveryEnd),number:cell(layout.numberStart,layout.numberEnd)};
     if(!main)return {deliveryType:'',deliveryReview:missing,deliverySource:'',_cells:cells,_page:{label:'',number:null,confidence:0}};
+    if(companionOnly){
+      // Nothing is decided from the page here; the cell reads of the line above decide.
+      const companionNumber=deliveredNumber(nWords.filter(w=>w.yd>=from&&w.yd<to&&Math.abs(w.yd-main.yd)<=Math.max(w.h,main.h)*0.9).sort((a,b)=>a.x-b.x));
+      return {deliveryType:'',deliveryReview:missing,deliverySource:rowText(main.words),_cells:cells,
+        _page:{label:'',number:null,confidence:0,numberText:'',companionNumbers:companionNumber?[companionNumber]:[],otherRows:1,companionOnly:true}};
+    }
     let label=rowText(main.words);const words=[...main.words];
     const next=rows[rows.indexOf(main)+1];
     // A wrapped "(B)" on the next line still belongs to this customer's collection.
@@ -355,8 +370,10 @@
     const nWords=body.filter(w=>w.xd>=layout.numberStart&&w.xd<layout.numberEnd);
     const kWords=body.filter(w=>w.xd>=layout.deliveryEnd&&w.xd<layout.numberStart);
     const stops=[];
-    for(const {parsed,first,from,to} of bands){
-      const delivery=parsed.length===1?deliveryForBand(dWords,nWords,first,from,to,layout,kWords):{deliveryType:'',deliveryReview:missing,deliverySource:''};
+    for(const {parsed,first,from,to,band} of bands){
+      // Line spacing of this customer block, used to step from one delivery line to the next.
+      const gaps=band.slice(1).map((row,i)=>row.yd-band[i].yd).filter(g=>g>0&&g<median(band.map(r=>r.h))*2.2);
+      const delivery=parsed.length===1?deliveryForBand(dWords,nWords,first,from,to,layout,kWords,median(gaps)):{deliveryType:'',deliveryReview:missing,deliverySource:''};
       stops.push(...parsed.map(stop=>({...stop,...delivery})));
     }
     return stops;
@@ -486,13 +503,14 @@
     // number 2: taller strip for wavy rows (block mode, may hold two lines).
     // number 3: the row is followed from the start of the label across to "lief."; only the
     //           "lief." part is kept, so a curved row cannot slip onto the line below.
-    const along=kind==='number'&&variant===3;
+    // number 4: the same as 3 with another zoom and threshold, as an independent second look.
+    const along=kind==='number'&&(variant===3||variant===4);
     const tall=(kind==='number'&&(variant===2||along))||(kind==='label'&&variant===1);
     const x0=along?cells.label.x0:cell.x0;
     return {kind,variant,psm:kind==='number'&&variant===2?'6':'7',follow:(kind==='label'&&variant===1)||along,
       keepX0:along?cell.x0:null,keepX1:along?cell.x1:null,
       x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
-      scale:variant===1&&kind==='number'?3:2,threshold:variant===1&&kind==='number'?135:165};
+      scale:kind!=='number'?2:variant===1?3:variant===4?2.5:2,threshold:kind!=='number'?165:variant===1?135:variant===4?180:165};
   }
   // Canvas size, page->cell transform (for setTransform) and the keep rectangle.
   function cellGeometry(box){
@@ -549,6 +567,14 @@
       if(!stop._cells||(stop.deliveryType==='Lieferpaket'&&/\blieferpaket\b/i.test(stop._page?.label||'')))continue;
       try{
         let label=await readCell(cellBox(stop,'label'));
+        // The cell landed on the Behaltemappe line: the delivery line is the one above it.
+        if(isCompanion(label?.text)){
+          const up={...stop._cells,label:{...stop._cells.label,yd:stop._cells.label.yd-stop._cells.gap},number:{...stop._cells.number,yd:stop._cells.number.yd-stop._cells.gap}};
+          const above=await readCell(cellBox({_cells:up},'label'));
+          const aboveFollowed=labelParts(above?.text||'').type==='other'?await readCell(cellBox({_cells:up},'label',1)):null;
+          const best=[above,aboveFollowed].find(read=>read&&labelParts(read.text||'').type!=='other');
+          if(best){label=best;stop._cells=up;stop._page={...(stop._page||{}),label:'',number:null,numberText:'',confidence:0};}
+        }
         // Curved labels: unless one read already shows Lieferpaket or a Kollektion, the label
         // is read once more along its own line. A recognised kind wins; otherwise the more
         // confident plain text is kept (e.g. "Punktemappe").
@@ -571,13 +597,24 @@
             // First follow the row from the label across to "lief." (stays on a curved row),
             const along=await readCell(cellBox(stop,'number',3));
             const alongLine=pairLine(along);
-            if(alongLine){numbers.splice(0,numbers.length,alongLine);}
-            else{
-            // then read a taller strip and pick the line with the pair.
-            const box=cellBox(stop,'number',2),probe=await readCell(box);
-            const line=pairLine(probe);
-            if(line)numbers.splice(0,numbers.length,line);
-            else if(!numbers.some(read=>deliveredNumber(read?.text||''))&&probeLoneNumber(probe,box,stop))numbers.push(probe);
+            let found=alongLine;
+            if(!found){
+              // then read a taller strip and pick the line with the pair.
+              const box=cellBox(stop,'number',2),probe=await readCell(box);
+              found=pairLine(probe);
+              if(!found&&!numbers.some(read=>deliveredNumber(read?.text||''))&&probeLoneNumber(probe,box,stop))numbers.push(probe);
+            }
+            if(found){
+              numbers.splice(0,numbers.length,found);
+              // An uncertain pair gets a second, independent look along the row; only an
+              // agreeing read is added as a vote, a different one changes nothing.
+              if(!(found.confidence>=55)){
+                const read=await readCell(cellBox(stop,'number',4)),second=pairLine(read),value=deliveredNumber(found.text);
+                // "4140": the same digits with the slash lost also confirm "41/40" (never a new number).
+                const digits=clean(read?.text).replace(/\D/g,'');
+                const agrees=second?deliveredNumber(second.text)===value:/^\d{3,4}$/.test(digits)&&digits.startsWith(value)&&digits.length-value.length<=2;
+                if(agrees)numbers.push({text:value,confidence:Math.max(read?.confidence||0,55),pair:true});
+              }
             }
           }
         }

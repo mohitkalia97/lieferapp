@@ -403,3 +403,47 @@ test('on a curved row the number is read by following the row from the label to 
   assert.deepEqual(asked,['label0','number0','number1','number3']);
   assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');assert.equal(stops[0].deliveryReview,'');
 });
+
+// ----- V5.15 -----
+test('the Behaltemappe line is never taken as the main delivery line',()=>{
+  // Main line read, Behaltemappe below: the main line wins even if it lies further from the anchor.
+  const both=parse([...header(),...customer(1,60,'Classic Kollektion (P) COL','41/ 40').map(w=>w.text==='Classic Kollektion (P) COL'||w.text==='41/ 40'?{...w,bbox:{...w.bbox,y0:w.bbox.y0-14,y1:w.bbox.y1-14}}:w),word('Behaltemappe COL',380,80),word('41',684,80)])[0];
+  assert.equal(both.deliveryType,'Classic Kollektion 41 P');
+  // Only the Behaltemappe line was read: nothing is guessed, and the cells move one line up.
+  const only=parse([...header(),...customer(1,60,'Behaltemappe COL','41')])[0];
+  assert.equal(only.deliveryType,'');assert.ok(only.deliveryReview);assert.ok(only._page.companionOnly);
+  assert.ok(only._cells.label.yd<78-10,'the label cell is moved to the line above');
+});
+test('a cell that lands on the Behaltemappe line reads the line above instead',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Classic (P? Co','')].map(w=>w.text==='Classic (P? Co'?{...w,confidence:30}:w));
+  const startY=stops[0]._cells.label.yd,asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}@${Math.round(box.yd)}`);
+    if(box.kind==='label')return box.yd<startY-1?{text:'Classic Kollektion (P) COL',confidence:92}:{text:'Behallemappe COL.',confidence:85};
+    return {text:'41/ 40',confidence:90};
+  });
+  assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');
+  assert.ok(stops[0]._cells.number.yd<startY,'the number is read on the line above as well');
+});
+test('an uncertain pair is confirmed by a second look, a slashless "4140" included',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Kollektion 3 (B) COL')]);
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}`);
+    if(box.kind==='label')return {text:'Kollektion 3 (B) COL',confidence:90};
+    if(box.variant===3)return {text:'38/37',confidence:20};
+    if(box.variant===4)return {text:'3837',confidence:30};
+    return {text:'',confidence:0};
+  });
+  assert.deepEqual(asked,['label0','number0','number1','number3','number4']);
+  assert.equal(stops[0].deliveryType,'Kollektion 38 B');assert.equal(stops[0].deliveryReview,'');
+  // a disagreeing second look adds nothing: the value stays, with the check note
+  const other=parse([...header(),...customer(1,60,'Kollektion 3 (B) COL')]);
+  await delivery.refineStops(other,async box=>box.kind==='label'?{text:'Kollektion 3 (B) COL',confidence:90}:box.variant===3?{text:'38/37',confidence:20}:box.variant===4?{text:'36/37',confidence:30}:{text:'',confidence:0});
+  assert.equal(other[0].deliveryType,'Kollektion 38 B');assert.match(other[0].deliveryReview,/unsicher/);
+});
+test('a stray letter after the place name is dropped',()=>{
+  const context=app();
+  assert.deepEqual({...context.parsePostal('A-2020 Hollabrunn P')},{postal:'2020',city:'Hollabrunn'});
+  assert.deepEqual({...context.parsePostal('A-3830 Waidhofen/Thaya')},{postal:'3830',city:'Waidhofen/Thaya'});
+});

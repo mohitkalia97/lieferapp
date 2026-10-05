@@ -133,3 +133,10 @@ V5.14:
 - "41 40" (Schrägstrich nicht erkannt) zählt als Paar "lief. / zur.".
 - Weicht die Behaltemappe-Nummer von einem sicher gelesenen Paar ab, wird die
   Liefermenge angezeigt und nur zur Prüfung markiert.
+
+V5.15:
+- Die Zeile "Behaltemappe COL" ist immer die zweite Lieferzeile eines Kunden und wird
+  nie mehr als Lieferart genommen. Wurde nur sie erkannt, liest die App die Zeile darüber.
+- Unsichere Liefermengen werden ein zweites Mal unabhängig gelesen; stimmen beide
+  überein, entfällt der Hinweis "Liefermenge unsicher".
+- Ein einzelner Buchstabe hinter dem Ort (z.B. "2020 Hollabrunn P") wird entfernt.
