@@ -114,3 +114,13 @@ V5.12 Gebogene und schräg fotografierte Seiten:
   Nummer in einem höheren Streifen gesucht.
 - Straßennamen wie "Sparkassegasse" werden nicht mehr als Tabellenkopf ("Kasse")
   verworfen; ein schwach gedrucktes "A-2020" wird auch als "4-2020" erkannt.
+
+V5.13:
+- "Wunsch-Kollektion" wird als Lieferart einfach "Wunschkollektion" angezeigt
+  (ohne Nummer, ohne Prüfhinweis).
+- Hausnummern mit Stiege/Tür wie "Gratzl 5/1" oder "Hauptplatz 16/2" werden als
+  Adresse erkannt. Punktlinien am Zeilenende (":", "i") stören die Adresse nicht mehr.
+- Gebogen gedruckte Lieferarten (z.B. "Classic Kollektion (P) COL") werden entlang
+  ihrer Zeile nachverfolgt und gerade gelesen.
+- Steht bei einer Kollektion eine zweite Zeile (z.B. Behaltemappe) darunter, wird die
+  Liefermenge nur aus dem Paar "lief. / zur." übernommen, nicht aus der Zahl darunter.

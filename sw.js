@@ -1,5 +1,5 @@
-const CACHE='lieferroute-shell-v5-12';
-const ASSETS=['./','./index.html','./app.js?v=5.12','./routing.js?v=5.12','./route-map.js?v=5.12','./delivery-import.js?v=5.12','./optimizer-ui.js?v=5.12','./style.css?v=5.12','./manifest.webmanifest?v=5.12','./icon.svg','./vendor/leaflet/leaflet.js','./vendor/leaflet/leaflet.css','./vendor/lucide/scan.svg','./vendor/lucide/map.svg'];
+const CACHE='lieferroute-shell-v5-13';
+const ASSETS=['./','./index.html','./app.js?v=5.13','./routing.js?v=5.13','./route-map.js?v=5.13','./delivery-import.js?v=5.13','./optimizer-ui.js?v=5.13','./style.css?v=5.13','./manifest.webmanifest?v=5.13','./icon.svg','./vendor/leaflet/leaflet.js','./vendor/leaflet/leaflet.css','./vendor/lucide/scan.svg','./vendor/lucide/map.svg'];
 
 self.addEventListener('install',event=>event.waitUntil(
   caches.open(CACHE)

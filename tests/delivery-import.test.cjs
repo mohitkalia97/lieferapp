@@ -104,16 +104,16 @@ test('CSV output and the route view include the delivery type',()=>{
 });
 
 // ----- scanned Morawa lists: skew, OCR noise, cell re-reads -----
-test('collection names printed in the PDF keep their prefix and Wunsch-Kollektion has no letter',()=>{
+test('collection names printed in the PDF keep their prefix; a Wunsch-Kollektion is just "Wunschkollektion"',()=>{
   const read=(label,n)=>delivery.readDelivery(label,{numbers:[n],column:true});
   assert.equal(read('Ladies Kollektion (L) COL','37').deliveryType,'Ladies Kollektion 37 L');
   assert.equal(read('Classic Kollektion (P)COL','38').deliveryType,'Classic Kollektion 38 P');
   for(const label of ['Wunsch-Kollektion WS','Wunsch Kollektion WS','Wunach Koltektion WS']){
-    const value=read(label,'38');assert.equal(value.deliveryType,'Wunsch-Kollektion 38');assert.match(value.deliveryReview,/Klammerbuchstaben/);
+    const value=read(label,'38');assert.equal(value.deliveryType,'Wunschkollektion');assert.equal(value.deliveryReview,'');
   }
-  assert.ok(delivery.readDelivery('Wunsch-Kollektion WS',{column:true}).deliveryReview);
-  assert.equal(delivery.reviewValue('Ladies Kollektion 37 L'),'');assert.match(delivery.reviewValue('Wunsch-Kollektion 38'),/Klammerbuchstaben/);
-  assert.equal(delivery.reviewValue('Wunsch-Kollektion 38 B'),'');
+  assert.deepEqual({...delivery.readDelivery('Wunsch-Kollektion WS',{column:true}),deliverySource:''},{deliveryType:'Wunschkollektion',deliveryReview:'',deliverySource:''});
+  assert.equal(delivery.reviewValue('Ladies Kollektion 37 L'),'');
+  for(const typed of ['Wunschkollektion','Wunsch-Kollektion','wunsch kollektion'])assert.equal(delivery.reviewValue(typed),'');
 });
 test('typical OCR damage is tolerated without inventing letters',()=>{
   assert.equal(delivery.readDelivery('KolleKtion 2A) COL',{numbers:['38'],column:true}).deliveryType,'Kollektion 38 A');
@@ -241,7 +241,7 @@ test('a tilted first customer line keeps its customer and address',()=>{
   const bent=words.map(w=>w.bbox.x0<370&&w.bbox.y0<170?{...w,bbox:{...w.bbox,y0:w.bbox.y0+tilt*w.bbox.x0,y1:w.bbox.y1+tilt*w.bbox.x0}}:w);
   const straight=bent.map(w=>w.bbox.x0<370&&w.bbox.y0<190?{...w,lineX:370,lineY:(w.bbox.y0+w.bbox.y1)/2-tilt*w.bbox.x0+tilt*370}:w);
   const stops=parse(straight);
-  assert.equal(stops.length,2);assert.equal(stops[0].address,'Lindenweg 7');assert.equal(stops[0].deliveryType,'Wunsch-Kollektion 41');
+  assert.equal(stops.length,2);assert.equal(stops[0].address,'Lindenweg 7');assert.equal(stops[0].deliveryType,'Wunschkollektion');
 });
 test('leaning columns are followed row by row on obliquely photographed pages',()=>{
   // Columns drift left down the page, more on the right than on the left (perspective).
@@ -314,4 +314,64 @@ test('street names containing a heading word and a faint "A-" postcode are kept'
   assert.deepEqual({...context.parsePostal('4-2020 Hollabrunn')},{postal:'2020',city:'Hollabrunn'});
   assert.equal(context.parsePostal('4 2020 Hollabrunn'),null);
   assert.ok(context.isNoise('Klasse lief. / zur.'));
+});
+
+test('a Wunsch-Kollektion needs no number reads and stays "Wunschkollektion" after the cell check',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Wunsch-Kollektion WS','41/ 40')]);
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{asked.push(box.kind);return {text:'Wunsch-Kollektion WS',confidence:90};});
+  assert.deepEqual(asked,['label']);assert.equal(stops[0].deliveryType,'Wunschkollektion');assert.equal(stops[0].deliveryReview,'');
+});
+
+// ----- V5.13 -----
+test('house numbers with staircase or door parts are addresses ("Gratzl 5/1")',()=>{
+  const context=app();
+  assert.equal(context.addressFromLine('Gratzl 5/1').address,'Gratzl 5/1');
+  assert.equal(context.addressFromLine('Gratzl 5 / 1').address,'Gratzl 5/1');
+  assert.equal(context.addressFromLine('Hauptplatz 16 / 2').address,'Hauptplatz 16/2');
+  assert.equal(context.addressFromLine('Tel: 0664/59 31 540'),null);
+  const [stop]=context.parseStops('22 KNr.: 6186802 09/16\nKosmetik & Fußpflege\nVogler, Margot\nGratzl 5/1\nA-3730 Eggenburg\nTel: 0664/59 31 540 (Salon)');
+  assert.equal(stop.name,'Kosmetik & Fußpflege - Vogler, Margot');assert.equal(stop.address,'Gratzl 5/1');assert.equal(stop.postal,'3730 Eggenburg');
+});
+test('dotted-rule leftovers at the end of customer lines do not hide the address',()=>{
+  const words=[...header(),...customer(1,60,'Lieferpaket lt. GesamtLS')].map(w=>w.text==='Lindenweg 7'?{...w,text:'Lindenweg 7 i'}:w.text==='1234 Beispielstadt'?{...w,text:'1234 Beispielstadt :'}:w);
+  const [stop]=parse(words);assert.equal(stop.address,'Lindenweg 7');assert.equal(stop.postal,'1234 Beispielstadt');
+});
+test('a curved text line is followed and straightened through the middle of the cell',()=>{
+  const width=300,height=80,px=new Uint8ClampedArray(width*height*4).fill(255);
+  // letters along an arc that rises by 20 px towards the right
+  for(let x=10;x<290;x++){if(x%12>7)continue;const yc=Math.round(40-20*((x-10)/280)**2);for(let y=yc-6;y<=yc+6;y++)px.fill(0,(y*width+x)*4,(y*width+x)*4+3);}
+  const out=delivery.followTextLine(px,width,height,24);
+  const centre=x=>{let n=0,sum=0;for(let y=0;y<height;y++)if(out[(y*width+x)*4]===0){n++;sum+=y;}return n?sum/n:null;};
+  assert.ok(Math.abs(centre(16)-40)<=5);assert.ok(Math.abs(centre(280)-40)<=5,'the raised right end is moved back to the middle');
+  const before=y=>{let n=0,sum=0;for(let r=0;r<height;r++)if(px[(r*width+y)*4]===0){n++;sum+=r;}return sum/n;};
+  assert.ok(before(280)<25,'it really was raised before');
+});
+test('an unreadable curved label is read again along its line',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Classic (P? Co','')].map(w=>w.text==='Classic (P? Co'?{...w,confidence:44}:w));
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}${box.follow?'f':''}`);
+    if(box.kind==='label')return box.follow?{text:'Classic Kollektion (P) COL',confidence:94}:{text:'Classic Kon) ktion (P) cot',confidence:57};
+    return {text:'41/ 40',confidence:80};
+  });
+  assert.deepEqual(asked.slice(0,2),['label0','label1f']);
+  assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');
+});
+test('a lone number next to a second delivery line is replaced by the pair from a taller strip',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Classic Kollektion (P) COL'),word('Behaltemappe COL',380,96)]);
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}:${box.psm}`);
+    if(box.kind==='label')return {text:'Classic Kollektion (P) COL',confidence:94};
+    if(box.variant<2)return {text:'41',confidence:95};   // the Behaltemappe line below
+    return {text:'41/40 41',confidence:80,words:[
+      {text:'41/',confidence:80,bbox:{x0:20,x1:50,y0:10,y1:30}},{text:'40',confidence:90,bbox:{x0:70,x1:90,y0:10,y1:30}},
+      {text:'41',confidence:90,bbox:{x0:20,x1:40,y0:45,y1:65}}]};
+  });
+  assert.deepEqual(asked,['label0:7','number0:7','number1:7','number2:6']);
+  assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');
+  // On the page read alone such a lone number is not taken when a second line exists.
+  const page=parse([...header(),...customer(1,60,'Classic Kollektion (P) COL'),word('Behaltemappe COL',380,96),word('44',684,96)]);
+  assert.equal(page[0].deliveryType,'Classic Kollektion');
 });

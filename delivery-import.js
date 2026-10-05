@@ -53,7 +53,7 @@
   function reviewValue(value){
     const text=clean(value);
     if(!text)return missing;
-    if(/^Wunsch-Kollektion\s+\d+$/i.test(text))return 'Kollektion ohne Klammerbuchstaben. Bitte am PDF prüfen.';
+    if(/^wunsch[- ]?kollektion$/i.test(text))return '';
     if(/\bkollektion\b/i.test(text)&&!/^(?:(?:[A-ZÄÖÜ][a-zäöüß]+\s+)?Kollektion|Wunsch-Kollektion)\s+\d+\s+[A-Z]$/i.test(text))return 'Kollektion unvollständig: Nummer und Buchstabe prüfen.';
     return '';
   }
@@ -114,10 +114,8 @@
         for(const m of parts.before.matchAll(/(?:^|\s)(\d+)\s*$/g))inline.push(m[1]);
       }
       const found=[...new Set([...inline,...numbers.map(clean).filter(n=>/^\d+$/.test(n))])];
-      if(parts.wish&&!parts.letters.length&&!parts.bracket){
-        if(found.length===1)return result(`Wunsch-Kollektion ${found[0]}`,'Kollektion ohne Klammerbuchstaben. Bitte am PDF prüfen.');
-        return result('Wunsch-Kollektion','Wunsch-Kollektion: Nummer unter „lief.“ am PDF prüfen.');
-      }
+      // A Wunsch-Kollektion is listed simply as "Wunschkollektion" (no number, no letter).
+      if(parts.wish)return result('Wunschkollektion');
       if(found.length===1&&parts.letters.length===1)return result(`${parts.title} ${found[0]} ${parts.letters[0]}`);
       return result(parts.title,incomplete);
     }
@@ -275,7 +273,9 @@
     // A stop starts with "<Nr> KNr.: <Kundennummer>"; a lost "Nr" still leaves "KNr" + digits.
     return /^\d{1,3}\s+(?:k\s*n\s*r|knr)[.:]?\s*\d{4,}/i.test(s)||/(?:^|[^A-Za-z])K\s*N\s*[A-Za-z]?\s*[.:,;]*\s*\d{5,8}\b/.test(s);
   }
-  const tidyCustomerLine=text=>clean(clean(text).replace(/^[^A-Za-zÄÖÜäöü0-9]+/,'').replace(/[—–-]+(?=K\s*N)/,' '));
+  // The dotted rule right of the customer column is often read as a trailing ":", ";", "|", "i" or "l".
+  const tidyCustomerLine=text=>clean(clean(text).replace(/^[^A-Za-zÄÖÜäöü0-9]+/,'').replace(/[—–-]+(?=K\s*N)/,' ')
+    .replace(/(?:\s+[:;|!¦'‘’`,_il])+\s*$/,''));
 
   function deliveryForBand(dWords,nWords,anchor,from,to,layout,kWords=[]){
     const rows=group(dWords.filter(w=>w.yd>=from&&w.yd<to&&!junk(w)));
@@ -307,7 +307,8 @@
     const numberWords=nWords.filter(w=>w.yd>=from-h&&w.yd<to&&onRow(w)).sort((a,b)=>a.x-b.x);
     // Without the slash a lone number may be the returned one ("zur.", right half of the cell).
     const leftHalf=w=>(w.xd-layout.numberStart)/Math.max(1,layout.numberEnd-layout.numberStart)<0.45;
-    const number=numberWords.some(w=>w.text.includes('/'))||numberWords.filter(w=>/\d/.test(w.text)).every(leftHalf)?deliveredNumber(numberWords):null;
+    // With a second delivery line (e.g. Behaltemappe) a lone number may also belong to that line.
+    const number=numberWords.some(w=>w.text.includes('/'))||(labelled.length===1&&numberWords.filter(w=>/\d/.test(w.text)).every(leftHalf))?deliveredNumber(numberWords):null;
     const companionNumbers=rows.filter(row=>row!==main&&/beh[aä]ltemappe/i.test(canonicalLabel(rowText(row.words))))
       .map(row=>deliveredNumber(nWords.filter(w=>w.yd>=from&&w.yd<to&&Math.abs(w.yd-row.yd)<=Math.max(w.h,row.h)*0.9).sort((a,b)=>a.x-b.x))).filter(Boolean);
     const source=[label,rowText(numberWords)].filter(Boolean).join(' | ');
@@ -420,14 +421,58 @@
     return pixels;
   }
 
+  // Curved labels: follows the text line from left to right (dynamic programming over
+  // narrow vertical slices, smooth and limited steps) and shifts each slice so the line
+  // runs straight through the middle of the cell. Neighbouring lines stay outside.
+  function followTextLine(pixels,width,height,charHeight){
+    const H=Math.max(4,charHeight),sw=Math.max(2,Math.round(H*0.35)),win=Math.max(3,Math.round(H*0.8));
+    const center=Math.round(height/2),range=Math.min(Math.round(H*0.9),Math.floor(center-win/2)-1),step=Math.max(1,Math.round(H*0.15));
+    if(range<1)return pixels;
+    const slices=Math.ceil(width/sw),D=2*range+1,ink=new Float64Array(slices*height);
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const i=(y*width+x)*4;
+      if(pixels[i]*0.3+pixels[i+1]*0.59+pixels[i+2]*0.11<150)ink[Math.floor(x/sw)*height+y]++;
+    }
+    const cost=new Float64Array(slices*D),from=new Int32Array(slices*D),score=new Float64Array(D);
+    for(let sl=0;sl<slices;sl++){
+      // ink inside the window around centre+d
+      const base=sl*height;
+      for(let k=0;k<D;k++){
+        const top=center+(k-range)-Math.floor(win/2);let n=0;
+        for(let y=top;y<top+win;y++)n+=ink[base+y];
+        score[k]=n;
+      }
+      for(let k=0;k<D;k++){
+        const keep=-score[k]+0.3*Math.abs(k-range);
+        if(sl===0){cost[k]=keep;from[k]=k;continue;}
+        let best=Infinity,arg=k;
+        for(let j=Math.max(0,k-step);j<=Math.min(D-1,k+step);j++){const c=cost[(sl-1)*D+j]+Math.abs(k-j);if(c<best){best=c;arg=j;}}
+        cost[sl*D+k]=best+keep;from[sl*D+k]=arg;
+      }
+    }
+    let k=0;for(let j=1;j<D;j++)if(cost[(slices-1)*D+j]<cost[(slices-1)*D+k])k=j;
+    const shift=new Float64Array(slices);
+    for(let sl=slices-1;sl>=0;sl--){shift[sl]=k-range;k=from[sl*D+k];}
+    const out=new Uint8ClampedArray(pixels.length).fill(255);
+    for(let x=0;x<width;x++){
+      const t=x/sw-0.5,a=Math.max(0,Math.min(slices-1,Math.floor(t))),b=Math.min(slices-1,a+1),f=Math.max(0,Math.min(1,t-a));
+      const d=Math.round(shift[a]*(1-f)+shift[b]*f);
+      for(let y=0;y<height;y++){
+        const sy=y+d;if(sy<0||sy>=height)continue;
+        const i=(y*width+x)*4,j=(sy*width+x)*4;out[i]=pixels[j];out[i+1]=pixels[j+1];out[i+2]=pixels[j+2];out[i+3]=255;
+      }
+    }
+    return out;
+  }
   // Cell in page pixels; y is deskewed: page y = yd + slope * x. Variant 1 is a second,
   // independent look (other zoom and threshold) that counts as a separate vote.
   function cellBox(stop,kind,variant=0){
     const cells=stop._cells;if(!cells)return null;
     const cell=cells[kind],h=cells.h;
-    // number 2: taller strip for wavy rows.
-    const tall=kind==='number'&&variant===2;
-    return {kind,variant,x0:cell.x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
+    // number 2: taller strip for wavy rows; label 1: taller strip whose text line is followed.
+    const tall=(kind==='number'&&variant===2)||(kind==='label'&&variant===1);
+    // psm: Tesseract page segmentation; the tall number strip may hold two lines (block mode).
+    return {kind,variant,psm:kind==='number'&&variant===2?'6':'7',follow:kind==='label'&&variant===1,x0:cell.x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
       scale:variant===1&&kind==='number'?3:2,threshold:variant===1&&kind==='number'?135:165};
   }
   // Canvas size, page->cell transform (for setTransform) and the keep rectangle.
@@ -435,7 +480,9 @@
     const s=box.scale,m=box.margin;
     return {width:Math.round((box.x1-box.x0+2*m)*s),height:Math.round((2*box.half+2*m)*s),pad:Math.round(box.pad*s),
       transform:[s,-box.slope*s,0,s,-(box.x0-m)*s,(box.half+m-box.yd)*s],
-      keep:{x0:m*s,x1:(m+box.x1-box.x0)*s,y0:m*s,y1:(m+2*box.half)*s}};
+      // A followed line is moved to the middle; only a normal-height band around it is kept.
+      keep:box.follow?{x0:m*s,x1:(m+box.x1-box.x0)*s,y0:(m+box.half-box.charHeight*0.62)*s,y1:(m+box.half+box.charHeight*0.62)*s}
+        :{x0:m*s,x1:(m+box.x1-box.x0)*s,y0:m*s,y1:(m+2*box.half)*s}};
   }
   // Browser helper: cuts, deskews and cleans one cell of the rendered page.
   function renderCell(pageCanvas,box,doc){
@@ -445,6 +492,7 @@
     ctx.fillStyle='#fff';ctx.fillRect(0,0,g.width,g.height);
     ctx.setTransform(...g.transform);ctx.drawImage(pageCanvas,0,0);ctx.setTransform(1,0,0,1,0,0);
     const image=ctx.getImageData(0,0,g.width,g.height);
+    if(box.follow)image.data.set(followTextLine(image.data,g.width,g.height,box.charHeight*box.scale));
     if(box.kind!=='region')clearNumberRules(image.data,g.width,g.height,box.charHeight*box.scale,box.threshold,g.keep,box.kind==='label');
     const out=doc.createElement('canvas');out.width=g.width+2*g.pad;out.height=g.height+2*g.pad;
     const octx=out.getContext('2d');octx.fillStyle='#fff';octx.fillRect(0,0,out.width,out.height);octx.putImageData(image,g.pad,g.pad);
@@ -461,21 +509,44 @@
     const span=g.keep.x1-g.keep.x0;
     return digits.every(w=>((w.bbox.x0+w.bbox.x1)/2-g.pad-g.keep.x0)/span<0.45);
   }
+  // The one line of a multi-line read that holds a "lief./zur." pair, or null.
+  function pairLine(read){
+    if(!read)return null;
+    const pair=text=>/\d\s*\/|\d\s*-+\s*$/.test(clean(text))&&deliveredNumber(text);
+    const words=(read.words||[]).filter(w=>w.bbox&&clean(w.text));
+    let lines;
+    if(words.length){
+      lines=group(prepare(words)).map(row=>({text:rowText(row.words),confidence:Math.min(...row.words.map(w=>Number.isFinite(w.confidence)?w.confidence:0))}));
+    }else lines=String(read.text||'').split(/\n+/).map(text=>({text:clean(text),confidence:read.confidence}));
+    const found=lines.filter(line=>pair(line.text));
+    return found.length===1?found[0]:null;
+  }
   async function refineStops(stops,readCell){
     for(const stop of stops){
       if(!stop._cells||(stop.deliveryType==='Lieferpaket'&&/\blieferpaket\b/i.test(stop._page?.label||'')))continue;
       try{
-        const label=await readCell(cellBox(stop,'label'));
+        let label=await readCell(cellBox(stop,'label'));
+        // Curved label that neither read recognises: read it once more along its own line.
+        const known=read=>{const parts=labelParts(read?.text||'');return parts.type!=='other'||(!!parts.title&&read.confidence>=75);};
+        if(!known(label)&&!known({text:stop._page?.label,confidence:stop._page?.confidence})){
+          const followed=await readCell(cellBox(stop,'label',1));
+          if(known(followed))label=followed;
+        }
         const kind=labelParts(label?.text||'').type,pageKind=labelParts(stop._page?.label||'').type;
         const numbers=[];
-        if(kind==='collection'||pageKind==='collection'){
+        const wish=[label?.text,stop._page?.label].some(text=>labelParts(text||'').wish);
+        if((kind==='collection'||pageKind==='collection')&&!wish){
           for(const variant of [0,1])numbers.push(await readCell(cellBox(stop,'number',variant)));
-          // Wavy rows: the number can sit above or below the label's line. If neither read
-          // found a "lief./zur." pair, a taller strip is read; only a pair with "/" counts.
-          if(!numbers.some(read=>deliveredNumber(read?.text||''))){
+          // Wavy or curved rows: the "lief./zur." pair can sit above or below the label's line,
+          // and the cell may then hit a neighbouring line (e.g. the lone "41" of a Behaltemappe).
+          // The main row always shows a pair ("41/ 40", "35/ -"); without one a taller strip is
+          // read, and a pair found there replaces the lone numbers.
+          const pair=read=>/\d\s*\/|\d\s*-+\s*$/.test(clean(read?.text));
+          if(!numbers.some(pair)){
             const box=cellBox(stop,'number',2),probe=await readCell(box);
-            if(/\d\s*\//.test(probe?.text||''))numbers.push(probe);
-            else if(probeLoneNumber(probe,box,stop))numbers.push(probe);
+            const line=pairLine(probe);
+            if(line)numbers.splice(0,numbers.length,line);
+            else if(!numbers.some(read=>deliveredNumber(read?.text||''))&&probeLoneNumber(probe,box,stop))numbers.push(probe);
           }
         }
         Object.assign(stop,mergeReads(stop,label,numbers));
@@ -513,6 +584,7 @@
       const letters=[...new Set([...(a.type==='collection'?a.letters:[]),...(b.type==='collection'?b.letters:[])])];
       if(letters.length>1)return done(title,`Buchstabe unklar (${letters.join(' oder ')}). Bitte am PDF prüfen.`);
       const wish=(a.type==='collection'&&a.wish)||(b.type==='collection'&&b.wish);
+      if(wish)return done('Wunschkollektion');
       const bracket=(a.type==='collection'&&a.bracket)||(b.type==='collection'&&b.bracket);
       label=`${title}${letters.length?` (${letters[0]})`:bracket&&!wish?' ()':''}`;
     }else if(a.type==='Lieferpaket'||b.type==='Lieferpaket')return done('Lieferpaket');
@@ -636,7 +708,7 @@
   }
 
 
-  const api={columnShear,shearAt,straightenColumn,straightenedWords,straightColumnPixels,renderStraightColumn,mergeColumnWords,reviewValue,readDelivery,rowsFromWords,pdfWords,columns,deliveredNumber,parsePage,clearNumberRules,cellBox,cellGeometry,renderCell,refineStops,retainPageEvidence,unreadRegions,mergeRegionWords,mergeReads,canonicalLabel};
+  const api={followTextLine,columnShear,shearAt,straightenColumn,straightenedWords,straightColumnPixels,renderStraightColumn,mergeColumnWords,reviewValue,readDelivery,rowsFromWords,pdfWords,columns,deliveredNumber,parsePage,clearNumberRules,cellBox,cellGeometry,renderCell,refineStops,retainPageEvidence,unreadRegions,mergeRegionWords,mergeReads,canonicalLabel};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.DeliveryImport=api;
 })(typeof window==='object'?window:globalThis);

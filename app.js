@@ -283,7 +283,7 @@ async function ocrPdf(file){
             // Lieferung and lief. cells are read again individually and compared.
             setImportProgress(Math.round(5+(p/pdf.numPages)*78),`Seite ${p}/${pdf.numPages}: Lieferarten werden geprüft…`);
             await DeliveryImport.refineStops(pageStops,async box=>{
-              await worker.setParameters(box.kind==='number'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789/-*'}:{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
+              await worker.setParameters({tessedit_pageseg_mode:box.psm||'7',tessedit_char_whitelist:box.kind==='number'?'0123456789/-*':''});
               const cell=DeliveryImport.renderCell(canvas,box,document);
               try{const {data:read}=await worker.recognize(cell);return {text:read.text||'',confidence:read.confidence,words:read.words||[]};}
               finally{cell.width=0;cell.height=0;}
@@ -312,21 +312,23 @@ function addressFromLine(line){
   // OCR often misreads the ß in "Straße" ("Stra@e", "Stra8e", "StraRe").
   const s=cleanLine(line).replace(/[;:]+$/,'').replace(/(stra)[@8BR](e\b)/gi,'$1ß$2').trim(); if(!s||isNoise(s)||parsePostal(s))return null;
   const street='straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|steig|gürtel|kai|lände|promenade';
-  if(/^nr\.?\s*\d{1,4}[a-zA-Z]?$/i.test(s))return{address:s,nameBefore:''};
+  // House numbers may carry staircase/door parts: "5/1", "16 / 2", "12a/3/4".
+  const no='\\d{1,4}[a-zA-Z]?(?:\\s*\\/\\s*\\d{1,4}[a-zA-Z]?){0,2}';
+  if(new RegExp(`^nr\\.?\\s*${no}$`,'i').test(s))return{address:s,nameBefore:''};
   const dash=s.match(/^(.*?)\s+-\s+(.+)$/);
   if(dash){
     const tail=cleanLine(dash[2]);
     const nested=addressFromLine(tail);
     if(nested)return{address:nested.address,nameBefore:[cleanLine(dash[1]),nested.nameBefore].filter(Boolean).join(' - ')};
   }
-  const re=new RegExp(`((?:[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]+\\s+){0,1}[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]*(?:${street})\\s+\\d{1,4}[a-zA-Z]?)`,'ig');
+  const re=new RegExp(`((?:[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]+\\s+){0,1}[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]*(?:${street})\\s+${no})(?![\\d\\/])`,'ig');
   const matches=[...s.matchAll(re)];
   if(matches.length){
-    const m=matches[matches.length-1],address=cleanLine(m[1]);
+    const m=matches[matches.length-1],address=cleanLine(m[1]).replace(/\s*\/\s*/g,'/');
     return{address,nameBefore:cleanLine(s.slice(0,m.index))};
   }
   if(new RegExp(`\\b(${street})\\b`,'i').test(s)&&/\d/.test(s)&&s.split(/\s+/).length<=5)return{address:s,nameBefore:''};
-  if(s.split(/\s+/).length<=4&&/^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .'\-\/]{1,48}\s+\d{1,4}[a-zA-Z]?$/.test(s))return{address:s,nameBefore:''};
+  if(s.replace(/\s*\/\s*/g,'/').split(/\s+/).length<=4&&new RegExp(`^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'\\-]{1,48}\\s+${no}$`).test(s))return{address:s.replace(/\s*\/\s*/g,'/'),nameBefore:''};
   return null;
 }
 function looksLikeAddress(line){return !!addressFromLine(line);}
