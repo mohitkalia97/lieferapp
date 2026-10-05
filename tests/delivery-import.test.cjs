@@ -205,3 +205,113 @@ test('a differing retaining-folder number warns but never supplies a missing col
   const noNumber={_page:{label:'Kollektion 2 (A) COL',number:null,companionNumbers:['35'],confidence:90}};
   assert.equal(delivery.mergeReads(noNumber,{text:'Kollektion 2 (A) COL',confidence:90},[]).deliveryType,'Kollektion');
 });
+
+// ----- bent and obliquely photographed pages (V5.12) -----
+function lineImage(width,height,lines){
+  // White RGBA image with dark text-like bars along y = y0 + slope*(x - width).
+  const px=new Uint8ClampedArray(width*height*4).fill(255);
+  for(const {y0,slope} of lines)for(let x=10;x<width-10;x++){
+    if(x%14>9)continue;
+    const yc=Math.round(y0+slope*(x-width));
+    for(let y=yc-4;y<=yc+4;y++)if(y>=0&&y<height)px.fill(0,(y*width+x)*4,(y*width+x)*4+3);
+  }
+  return px;
+}
+test('the customer column is straightened strip by strip, following a bend that changes down the page',()=>{
+  const width=400,height=600,lines=[];
+  for(let y=40;y<300;y+=30)lines.push({y0:y,slope:0.04});
+  for(let y=330;y<580;y+=30)lines.push({y0:y,slope:0});
+  const px=lineImage(width,height,lines),points=delivery.columnShear(px,width,height,{xref:width,charHeight:10});
+  assert.ok(Math.abs(delivery.shearAt(points,120)-0.04)<=0.006,'top strip follows the strong tilt');
+  assert.ok(Math.abs(delivery.shearAt(points,500))<=0.006,'bottom strip stays straight');
+  const out=delivery.straightenColumn(px,width,height,points,width);
+  const rowInk=y=>{let n=0;for(let x=0;x<width;x++)if(out[(y*width+x)*4]===0)n++;return n;};
+  assert.ok(rowInk(100)>width*0.5,'a tilted line becomes one straight row');
+});
+test('words of a straightened line keep one row height and map back onto the page',()=>{
+  const points=[{y:0,slope:0.05},{y:1000,slope:0.05}];
+  const words=delivery.straightenedWords([{text:'2',bbox:{x0:10,x1:20,y0:100,y1:120}},{text:'KNr.:',bbox:{x0:200,x1:260,y0:100,y1:120}}],points,{xref:500});
+  assert.equal(words[0].lineY,words[1].lineY);assert.equal(words[0].lineX,500);
+  assert.ok(words[0].bbox.y0<words[1].bbox.y0,'on the page the left end of the line lies higher');
+  const rows=delivery.rowsFromWords(words);assert.equal(rows.length,1);
+});
+test('a tilted first customer line keeps its customer and address',()=>{
+  // "2 KNr.: …" climbs so steeply that, unstraightened, its right part sits on the name line.
+  const tilt=0.06,words=[...header(),...customer(1,80,'Wunsch-Kollektion WS','41/ 40'),...customer(2,200,'Kollektion 1 (S) COL','40/ 39','')];
+  const bent=words.map(w=>w.bbox.x0<370&&w.bbox.y0<170?{...w,bbox:{...w.bbox,y0:w.bbox.y0+tilt*w.bbox.x0,y1:w.bbox.y1+tilt*w.bbox.x0}}:w);
+  const straight=bent.map(w=>w.bbox.x0<370&&w.bbox.y0<190?{...w,lineX:370,lineY:(w.bbox.y0+w.bbox.y1)/2-tilt*w.bbox.x0+tilt*370}:w);
+  const stops=parse(straight);
+  assert.equal(stops.length,2);assert.equal(stops[0].address,'Lindenweg 7');assert.equal(stops[0].deliveryType,'Wunsch-Kollektion 41');
+});
+test('leaning columns are followed row by row on obliquely photographed pages',()=>{
+  // Columns drift left down the page, more on the right than on the left (perspective).
+  const lean=(x,y)=>x-(0.01+0.00005*x)*(y-20);
+  const shift=w=>({...w,bbox:{...w.bbox,x0:lean(w.bbox.x0,w.bbox.y0),x1:lean(w.bbox.x1,w.bbox.y0)}});
+  const words=[...header()];
+  for(let i=0;i<6;i++)words.push(...customer(i+1,60+i*150,i%2?'Lieferpaket lt. GesamtLS':'Kollektion 2 (A) COL',i%2?'':'41/ 40'),word(`${10+i},50`,800,78+i*150),word(`0${i+1}/1${i}`,250,60+i*150));
+  const stops=parse(words.map(shift));
+  assert.equal(stops.length,6);
+  assert.deepEqual(stops.map(s=>s.deliveryType),['Kollektion 41 A','Lieferpaket','Kollektion 41 A','Lieferpaket','Kollektion 41 A','Lieferpaket']);
+});
+test('a wide OCR box around "Klasse" is resolved by the other header words',()=>{
+  const words=header().map(w=>w.text==='Klasse'?{...w,bbox:{...w.bbox,x1:w.bbox.x0+260}}:w);
+  const layout=delivery.columns([...words,...customer(1,60,'Kollektion 2 (A) COL','38/ 37*')],1000);
+  assert.ok(layout.deliveryStart<400&&layout.numberStart<700,'columns stay at the left end of the box');
+  assert.equal(parse([...words,...customer(1,60,'Kollektion 2 (A) COL','38/ 37*')])[0].deliveryType,'Kollektion 38 A');
+});
+test('a table heading inside the first customer band is not taken as Lieferart',()=>{
+  const stop=parse([...header().filter(w=>w.text!=='Lieferung'),word('Lieferung',380,62),...customer(1,60,'Lieferpaket lt. GesamtLS').map(w=>w.text==='Lieferpaket lt. GesamtLS'?{...w,bbox:{...w.bbox,y0:w.bbox.y0+16,y1:w.bbox.y1+16}}:w)])[0];
+  assert.equal(stop.deliveryType,'Lieferpaket');
+  assert.equal(delivery.readDelivery('Lieferung').deliveryType,'');
+});
+test('suffixes alone are no delivery type, short printed codes are',()=>{
+  for(const label of ['COL','WS'])assert.equal(delivery.readDelivery(label).deliveryType,'');
+  assert.equal(delivery.readDelivery('DS WS').deliveryType,'DS');assert.equal(delivery.readDelivery('DS DS').deliveryType,'DS DS');
+});
+test('a lone number is only a delivery number on the "lief." side; a dash means nothing returned',()=>{
+  assert.equal(delivery.deliveredNumber('35 -'),'35');assert.equal(delivery.deliveredNumber('35-'),'35');
+  const right=parse([...header(),...customer(1,60,'Kollektion 2 (A) COL'),word('40',720,78)])[0];
+  assert.equal(right.deliveryType,'Kollektion');assert.ok(right.deliveryReview);
+  const left=parse([...header(),...customer(1,60,'Kollektion 2 (A) COL'),word('38',684,78)])[0];
+  assert.equal(left.deliveryType,'Kollektion 38 A');
+});
+test('wavy rows: a taller strip is read when the number is not on the label line',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Kollektion 3 (B) COL')]);
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}`);
+    if(box.kind==='label')return {text:'Kollektion 3 (B) COL',confidence:90};
+    if(box.variant<2)return {text:'',confidence:0};
+    const g=delivery.cellGeometry(box),x=g.pad+g.keep.x0+5;
+    return {text:'38',confidence:95,words:[{text:'38',bbox:{x0:x,x1:x+20,y0:10,y1:30}}]};
+  });
+  assert.deepEqual(asked,['label0','number0','number1','number2']);
+  assert.equal(stops[0].deliveryType,'Kollektion 38 B');
+  // The same lone number on the "zur." side, or with a second delivery line, is not accepted.
+  const other=parse([...header(),...customer(1,60,'Kollektion 3 (B) COL'),word('Behaltemappe COL',380,96)]);
+  await delivery.refineStops(other,async box=>box.kind==='label'?{text:'Kollektion 3 (B) COL',confidence:90}:box.variant<2?{text:'',confidence:0}:{text:'38',confidence:95,words:[{text:'38',bbox:{x0:30,x1:50,y0:10,y1:30}}]});
+  assert.equal(other[0].deliveryType,'Kollektion');assert.ok(other[0].deliveryReview);
+});
+test('number cells drop digits of the next line; label cells keep curved letters',()=>{
+  const w=80,h=40,keep={x0:0,x1:80,y0:10,y1:26};
+  const make=()=>{const px=new Uint8ClampedArray(w*h*4).fill(255);
+    for(let y=21;y<34;y++)for(let x=30;x<36;x++)px.fill(0,(y*w+x)*4,(y*w+x)*4+3); // centre below the band, about half inside
+    return px;};
+  const number=delivery.clearNumberRules(make(),w,h,14,165,keep,false),label=delivery.clearNumberRules(make(),w,h,14,165,keep,true);
+  assert.equal(number[(28*w+32)*4],255);assert.equal(label[(28*w+32)*4],0);
+});
+test('customer words come from the straightened read, the rest from the page read',()=>{
+  const layout={deliveryStart:300,shiftX:(x,y)=>x+0.05*y}; // columns lean left further down
+  const page=[{text:'Lieferpaket',bbox:{x0:290,x1:350,y0:390,y1:410}},{text:'garbled',bbox:{x0:100,x1:150,y0:100,y1:110}}];
+  const column=[{text:'Paul,',bbox:{x0:100,x1:140,y0:100,y1:110}}];
+  const merged=delivery.mergeColumnWords(page,column,layout).map(w=>w.text);
+  assert.deepEqual(merged.sort(),['Lieferpaket','Paul,']);
+});
+test('street names containing a heading word and a faint "A-" postcode are kept',()=>{
+  const context=app();
+  assert.equal(context.addressFromLine('Sparkassegasse 16').address,'Sparkassegasse 16');
+  assert.equal(context.addressFromLine('Horner Stra@e 26').address,'Horner Straße 26');
+  assert.deepEqual({...context.parsePostal('4-2020 Hollabrunn')},{postal:'2020',city:'Hollabrunn'});
+  assert.equal(context.parsePostal('4 2020 Hollabrunn'),null);
+  assert.ok(context.isNoise('Klasse lief. / zur.'));
+});

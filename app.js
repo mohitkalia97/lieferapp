@@ -260,13 +260,15 @@ async function ocrPdf(file){
           try{
             const layout=DeliveryImport.columns(words,canvas.width,options.lines);
             if(layout.found){
-              const customer=document.createElement('canvas');customer.width=Math.floor(layout.deliveryStart);customer.height=canvas.height;
+              // Photographed pages bend; the customer column is straightened strip by strip
+              // and read again, so tilted first lines ("2 KNr.: …") keep their customer.
+              const column=DeliveryImport.renderStraightColumn(canvas,layout,document);
               try{
-                customer.getContext('2d').drawImage(canvas,0,0,customer.width,customer.height,0,0,customer.width,customer.height);
                 await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
-                const {data:read}=await worker.recognize(customer);
-                if(read.words?.length)words=[...words.filter(w=>w.bbox.x0>=customer.width),...read.words];
-              }finally{customer.width=0;customer.height=0;}
+                const {data:read}=await worker.recognize(column.canvas);
+                const columnWords=DeliveryImport.straightenedWords(read.words||[],column.points,{xref:column.xref});
+                if(columnWords.length)words=DeliveryImport.mergeColumnWords(words,columnWords,layout);
+              }finally{column.canvas.width=0;column.canvas.height=0;}
             }
             // Blocks the page OCR skipped are read again on their own (sparse text mode).
             const regions=DeliveryImport.unreadRegions(words,canvas.width,parser,options);
@@ -283,7 +285,7 @@ async function ocrPdf(file){
             await DeliveryImport.refineStops(pageStops,async box=>{
               await worker.setParameters(box.kind==='number'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789/-*'}:{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
               const cell=DeliveryImport.renderCell(canvas,box,document);
-              try{const {data:read}=await worker.recognize(cell);return {text:read.text||'',confidence:read.confidence};}
+              try{const {data:read}=await worker.recognize(cell);return {text:read.text||'',confidence:read.confidence,words:read.words||[]};}
               finally{cell.width=0;cell.height=0;}
             });
           }finally{
@@ -299,15 +301,16 @@ async function ocrPdf(file){
 }
 function cleanLine(s){return String(s||'').replace(/[|]+/g,' ').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
 function isPageMarker(s){return /^===PAGE_\d+===$/.test(cleanLine(s));}
-function isNoise(line){const s=cleanLine(line).toLowerCase();if(!s||isPageMarker(line))return true;return /tourenliste|morawa lesezirkel|hackinger|liefertag|lieferwoche|fahrer|tour:|seite \d|klasse|preis|kasse|\blieferung\b/.test(s)||/^kunde\b/i.test(s)||/^tel[:.]?/i.test(s)||/\bdw\s*\d+/.test(s)||/^(lieferpaket|kollektion|wunsch-kollektion|behältemappe|punktemappe)/i.test(s)||/^[\d\s.,/*()_-]+$/.test(s);}
+function isNoise(line){const s=cleanLine(line).toLowerCase();if(!s||isPageMarker(line))return true;return /tourenliste|morawa lesezirkel|hackinger|liefertag|lieferwoche|fahrer|tour:|seite \d|\bklasse\b|\bpreis\b|\bkasse\b|\blieferung\b/.test(s)||/^kunde\b/i.test(s)||/^tel[:.]?/i.test(s)||/\bdw\s*\d+/.test(s)||/^(lieferpaket|kollektion|wunsch-kollektion|behältemappe|punktemappe)/i.test(s)||/^[\d\s.,/*()_-]+$/.test(s);}
 function normalizeLines(text){const a=[];for(const raw of String(text||'').split(/\r?\n/)){let line=cleanLine(raw);if(!line)continue;if(isPageMarker(line)){a.push(line);continue;}const c=line.match(/^(.*?\d+[a-zA-Z]?)\s+(A[-\s]?\d{4}\s+.+)$/i);if(c&&!/tel[:.]?/i.test(line)){a.push(cleanLine(c[1]),cleanLine(c[2]));}else a.push(line);}return a;}
-function parsePostal(line){line=cleanLine(line);const m=line.match(/^(?:A[-\s]?)?(\d{4})\s+(.+)$/i);if(!m)return null;let city=cleanLine(m[2]).replace(/\s+(?:tel|telefon)[:.].*$/i,'').replace(/[;,.:]+$/,'').trim();if(!city||/morawa|lesezirkel|hackinger|tel[:.]?|telefon|dw\s*\d+|©|@|www\./i.test(city))return null;return{postal:m[1],city};}
+function parsePostal(line){line=cleanLine(line);const m=line.match(/^(?:A[-\s]?|4-)?(\d{4})\s+(.+)$/i);if(!m)return null;let city=cleanLine(m[2]).replace(/\s+(?:tel|telefon)[:.].*$/i,'').replace(/[;,.:]+$/,'').trim();if(!city||/morawa|lesezirkel|hackinger|tel[:.]?|telefon|dw\s*\d+|©|@|www\./i.test(city))return null;return{postal:m[1],city};}
 function inferPostalFromText(text){const s=cleanLine(text).toLowerCase();const map=[[/bad großpertholz|bad grosspertholz/,['3972','Bad Großpertholz']],[/moorbad harbach|moorheilbad harbach/,['3970','Moorbad Harbach']],[/groß gerungs|gross gerungs|gr\.?\s*gerungs/,['3920','Groß Gerungs']],[/alt nagelberg/,['3871','Alt Nagelberg']],[/heidenreichstein/,['3860','Heidenreichstein']],[/waidhofen/,['3830','Waidhofen/Thaya']],[/groß siegharts|gross siegharts/,['3812','Groß Siegharts']],[/raabs/,['3820','Raabs an der Thaya']],[/langschlag/,['3921','Langschlag']],[/schweiggers/,['3931','Schweiggers']],[/litschau/,['3874','Litschau']],[/schrems/,['3943','Schrems']],[/gmünd|gmuend/,['3950','Gmünd']],[/weitra/,['3970','Weitra']],[/gars(?:\/| am )kamp/,['3571','Gars/Kamp']]];for(const [re,[postal,city]] of map)if(re.test(s))return{postal,city};return null;}
 function inferAddressFromText(name,text){const s=`${name} ${text}`;if(/böhm,\s*romana/i.test(s))return 'Stadtplatz 3';if(/hotel.*moorheilbad|moorheilbad.*hotel/i.test(s))return 'Bildbaumweg 1';return'';}
 function looksLikeStopHeader(line){const s=cleanLine(line);return /^\d{1,3}\s+(?:k\s*n\s*r|knr)[.:]?\s*\d{4,}/i.test(s)||/^\d{1,3}\s+.{0,12}\b\d{6,7}\b/.test(s)||/^\d{1,3}\s+k\s*n/i.test(s);}
 function extractStopNumber(line){const m=cleanLine(line).match(/^(\d{1,3})\b/);return m?+m[1]:null;}
 function addressFromLine(line){
-  const s=cleanLine(line).replace(/[;:]+$/,'').trim(); if(!s||isNoise(s)||parsePostal(s))return null;
+  // OCR often misreads the ß in "Straße" ("Stra@e", "Stra8e", "StraRe").
+  const s=cleanLine(line).replace(/[;:]+$/,'').replace(/(stra)[@8BR](e\b)/gi,'$1ß$2').trim(); if(!s||isNoise(s)||parsePostal(s))return null;
   const street='straße|strasse|gasse|weg|platz|markt|ring|allee|zeile|berg|dorf|steig|gürtel|kai|lände|promenade';
   if(/^nr\.?\s*\d{1,4}[a-zA-Z]?$/i.test(s))return{address:s,nameBefore:''};
   const dash=s.match(/^(.*?)\s+-\s+(.+)$/);
@@ -316,7 +319,7 @@ function addressFromLine(line){
     const nested=addressFromLine(tail);
     if(nested)return{address:nested.address,nameBefore:[cleanLine(dash[1]),nested.nameBefore].filter(Boolean).join(' - ')};
   }
-  const re=new RegExp(`((?:[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.'\\/-]+\\s+){0,1}[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.'\\/-]*(?:${street})\\s+\\d{1,4}[a-zA-Z]?)`,'ig');
+  const re=new RegExp(`((?:[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]+\\s+){0,1}[A-ZÄÖÜ][A-Za-zÀ-ÿ.'\\/-]*(?:${street})\\s+\\d{1,4}[a-zA-Z]?)`,'ig');
   const matches=[...s.matchAll(re)];
   if(matches.length){
     const m=matches[matches.length-1],address=cleanLine(m[1]);

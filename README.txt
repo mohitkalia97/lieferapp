@@ -104,3 +104,13 @@ V5.11 Lieferart beim PDF-Import:
 - Lieferart ist in Importkontrolle, Tourliste, Zustellansicht, Bearbeitung,
   JSON-Backup und CSV-Export enthalten. Bestehende Touren bleiben kompatibel;
   für die automatische Ergänzung ihrer Lieferarten die Original-PDF neu importieren.
+
+V5.12 Gebogene und schräg fotografierte Seiten:
+- Die Kundenspalte wird streifenweise gerade gerichtet, bevor sie gelesen wird.
+  Dadurch werden auch die ersten, oft stark gebogenen Kunden einer Seite erkannt.
+- Schräg fotografierte Seiten: Die Spalten "Lieferung" und "lief." werden
+  zeilenweise nachgeführt, weil sie nach unten hin seitlich wandern.
+- Wellige Zeilen: Steht "lief." höher oder tiefer als die Lieferart, wird die
+  Nummer in einem höheren Streifen gesucht.
+- Straßennamen wie "Sparkassegasse" werden nicht mehr als Tabellenkopf ("Kasse")
+  verworfen; ein schwach gedrucktes "A-2020" wird auch als "4-2020" erkannt.

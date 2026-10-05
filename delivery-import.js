@@ -76,9 +76,13 @@
     const pairs=[...text.matchAll(/(?:^|[^\d\/])(\d{1,2})\s*\/\s*(?:-|\d{1,2}(?!\d))/g)];
     if(pairs.length===1)return pairs[0][1];
     m=text.match(/^(\d{1,2})(?:\s+\d{1,2}\s*\*?)?$/);
+    if(m)return m[1];
+    // "35/ -" whose thin slash got lost: a dash means nothing returned, so 35 was delivered.
+    m=text.match(/^(\d{1,2})\s*-+$/);
     return m?m[1]:null;
   }
 
+  const headingText=text=>{const c=core(text);return c.length>=5&&(distance(c,'lieferung')<=2||distance(c,'lieferart')<=2);};
   // Splits a label into the parts the output is built from.
   function labelParts(label){
     label=canonicalLabel(label);
@@ -91,8 +95,10 @@
       return {type:'collection',wish,title:wish?'Wunsch-Kollektion':prefix?`${prefix} Kollektion`:'Kollektion',
         letters:collectionLetters(rest),bracket:/[([{)\]}]/.test(rest),rest,before:kind[1]};
     }
-    const plain=label.replace(/\s+(?:COL|WS|lt\.?\s+Gesamt\s*LS)$/i,'').replace(/^[^A-Za-zÄÖÜäöü]+|[^A-Za-zÄÖÜäöüß)]+$/g,'');
-    return {type:'other',title:plain&&/[A-Za-zÄÖÜäöü]{3}/.test(plain)?plain:''};
+    const plain=label.replace(/\s+(?:COL|WS|lt\.?\s+Gesamt\s*LS)$/i,'').replace(/^(?:COL|WS)$/i,'').replace(/^[^A-Za-zÄÖÜäöü]+|[^A-Za-zÄÖÜäöüß)]+$/g,'');
+    // Short printed codes such as "DS" count as well; "COL"/"WS" alone are only suffixes.
+    const valid=plain&&!headingText(plain)&&(/[A-Za-zÄÖÜäöü]{3}/.test(plain)||/^[A-ZÄÖÜ]{2}(?:\s+[A-ZÄÖÜ]{2})*$/.test(plain))&&!/^(?:COL|WS|LS)$/i.test(plain);
+    return {type:'other',title:valid?plain:''};
   }
 
   function readDelivery(label,{numbers=[],source=label,column=false}={}){
@@ -121,9 +127,17 @@
 
   // ----- geometry -----
   // slopeAt(y) gives the local skew of a text line; deskewed y = y - slope * x.
-  function prepare(words,slopeAt=()=>0){
+  function prepare(words,slopeAt=()=>0,shiftX=null){
     return words.filter(w=>clean(w.text)&&w.bbox&&['x0','x1','y0','y1'].every(k=>Number.isFinite(w.bbox[k])))
-      .map(w=>{const y=(w.bbox.y0+w.bbox.y1)/2,xc=(w.bbox.x0+w.bbox.x1)/2;return {...w,text:clean(w.text),x:w.bbox.x0,y,yd:y-slopeAt(y)*xc,h:Math.max(1,w.bbox.y1-w.bbox.y0)};});
+      .map(w=>{
+        const y=(w.bbox.y0+w.bbox.y1)/2,xc=(w.bbox.x0+w.bbox.x1)/2;
+        // Words from a straightened column carry the height of their text line at x = lineX,
+        // so all words of one OCR line stay in one row however the paper is bent.
+        const yd=Number.isFinite(w.lineY)&&Number.isFinite(w.lineX)?w.lineY-slopeAt(w.lineY)*w.lineX:y-slopeAt(y)*xc;
+        // xd: x as it would be at the header row, so leaning columns can be cut straight.
+        const xd=shiftX?shiftX(w.bbox.x0,y):w.bbox.x0;
+        return {...w,text:clean(w.text),x:w.bbox.x0,xd,y,yd,h:Math.max(1,w.bbox.y1-w.bbox.y0)};
+      });
   }
   function group(words){
     const sorted=[...words].sort((a,b)=>a.yd-b.yd||a.x-b.x),rows=[];
@@ -151,17 +165,30 @@
     const first=(test,pool=scored)=>pool.filter(test).sort((a,b)=>a.w.y-b.w.y)[0]?.w;
     let klasse=first(v=>v.c.length>=4&&distance(v.c,'klasse')<=2&&distance(v.c,'klasse')<distance(v.c,'kasse'));
     if(!klasse)return null;
-    // OCR boxes sometimes swallow a rule in front of the word; the right edge stays reliable.
-    const klasseX=klasse.bbox.x1-klasse.bbox.x0>width*0.065?klasse.bbox.x1-width*0.051:klasse.x;
     const near=scored.filter(v=>Math.abs(v.w.y-klasse.y)<=width*0.06);
-    const gap=(v,lo,hi)=>v.w.x-klasseX>=width*lo&&v.w.x-klasseX<=width*hi;
-    return {klasse,klasseX,
-      lief:first(v=>v.c.length>=2&&v.c.length<=8&&distance(v.c.slice(0,4),'lief')<=2&&gap(v,0.04,0.085),near),
-      preis:first(v=>v.c.length>=3&&v.c.length<=6&&distance(v.c,'preis')<=2&&gap(v,0.155,0.215),near),
-      kasse:first(v=>v.c.length>=3&&distance(v.c,'kasse')<=1&&gap(v,0.25,0.4),near),
-      lieferung:first(v=>v.c.length>=6&&distance(v.c,'lieferung')<=3&&gap(v,-0.26,-0.19),near),
-      kunde:first(v=>v.c.length>=4&&distance(v.c,'kunde')<=1&&gap(v,-0.6,-0.4),near)};
+    const build=klasseX=>{
+      const gap=(v,lo,hi)=>v.w.x-klasseX>=width*lo&&v.w.x-klasseX<=width*hi;
+      return {klasse,klasseX,
+        lief:first(v=>v.c.length>=2&&v.c.length<=8&&distance(v.c.slice(0,4),'lief')<=2&&gap(v,0.04,0.085),near),
+        preis:first(v=>v.c.length>=3&&v.c.length<=6&&distance(v.c,'preis')<=2&&gap(v,0.155,0.215),near),
+        kasse:first(v=>v.c.length>=3&&distance(v.c,'kasse')<=1&&gap(v,0.25,0.4),near),
+        lieferung:first(v=>v.c.length>=6&&distance(v.c,'lieferung')<=3&&gap(v,-0.26,-0.19),near),
+        kunde:first(v=>v.c.length>=4&&distance(v.c,'kunde')<=1&&gap(v,-0.6,-0.4),near)};
+    };
+    // An OCR box can swallow a rule or a neighbouring word on either side of "Klasse".
+    // Both ends are tried; the other header words and the table body decide.
+    const wide=klasse.bbox.x1-klasse.bbox.x0>width*0.065;
+    const candidates=wide?[klasse.bbox.x0,klasse.bbox.x1-width*0.051]:[klasse.x];
+    const below=scored.filter(v=>v.w.y>klasse.y&&v.w.y<klasse.y+width*0.5);
+    const score=h=>{
+      const k=h.klasseX,inside=(v,lo,hi)=>v.w.x-k>=width*lo&&v.w.x-k<=width*hi;
+      return ['lief','preis','kasse','lieferung','kunde'].filter(key=>h[key]).length*2
+        +below.filter(v=>(canonicalWord(v.w.text)==='Lieferpaket'||canonicalWord(v.w.text)==='Kollektion')&&inside(v,-0.25,-0.17)).length
+        +below.filter(v=>/^neu$/i.test(v.w.text)&&inside(v,-0.01,0.05)).length;
+    };
+    return candidates.map(build).map(h=>({h,s:score(h)})).sort((a,b)=>b.s-a.s)[0].h;
   }
+
   const headerWords=header=>['klasse','lief','preis','kasse','lieferung','kunde'].map(k=>header[k]).filter(Boolean);
   // Theil-Sen slope over the header words: one misread word cannot tilt the page.
   function headerSlope(header,width){
@@ -188,18 +215,58 @@
       return clamp(near.length>=3?median(near):all);
     };
   }
+  // On rotated or obliquely photographed pages the columns lean: a column's x changes with y,
+  // and by a different amount on the left and on the right of the page. Words that always
+  // line up vertically (KNr., the dd/dd reference, "Lieferpaket", "neu", prices) measure it.
+  function columnDrift(words,width,yref,approx){
+    const ws=prepare(words),families=[];
+    const take=test=>{const pts=ws.filter(test).map(w=>({x:w.x,y:w.y}));if(pts.length>=3)families.push(pts);};
+    take(w=>w.x<approx.deliveryStart&&/^K\s*N\s*[A-Za-z]?\s*[.:,;]*$/i.test(w.text));
+    take(w=>w.x>width*0.15&&w.x<approx.deliveryStart+width*0.02&&/^\d{2}\/\d{2}[.:;,!]?$/.test(w.text));
+    take(w=>w.x>approx.deliveryStart-width*0.08&&w.x<approx.deliveryEnd&&canonicalWord(w.text)==='Lieferpaket');
+    take(w=>w.x>approx.deliveryEnd-width*0.06&&w.x<approx.numberStart&&/^neu$/i.test(w.text));
+    take(w=>w.x>approx.numberEnd-width*0.03&&w.x<approx.numberEnd+width*0.15&&/^\d{1,3},\d{2}$/.test(w.text));
+    const fits=[];
+    for(const pts of families){
+      const span=Math.max(...pts.map(p=>p.y))-Math.min(...pts.map(p=>p.y));
+      if(span<width*0.3)continue;
+      const slopes=[];
+      for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++)if(Math.abs(pts[j].y-pts[i].y)>width*0.12)slopes.push((pts[j].x-pts[i].x)/(pts[j].y-pts[i].y));
+      const d=median(slopes);if(d===null||Math.abs(d)>0.12)continue;
+      // Points far off the line (another column, OCR noise) are dropped before refitting.
+      const at=median(pts.map(p=>p.x-d*(p.y-yref)));
+      const good=pts.filter(p=>Math.abs(p.x-d*(p.y-yref)-at)<width*0.02);
+      if(good.length<3)continue;
+      const refit=[];
+      for(let i=0;i<good.length;i++)for(let j=i+1;j<good.length;j++)if(Math.abs(good[j].y-good[i].y)>width*0.12)refit.push((good[j].x-good[i].x)/(good[j].y-good[i].y));
+      const dd=median(refit);if(dd!==null)fits.push({x:median(good.map(p=>p.x)),d:dd,w:good.length});
+    }
+    const clamp=v=>Math.max(-0.1,Math.min(0.1,v));
+    if(!fits.length)return ()=>0;
+    const W=fits.reduce((n,f)=>n+f.w,0),mx=fits.reduce((n,f)=>n+f.w*f.x,0)/W,md=fits.reduce((n,f)=>n+f.w*f.d,0)/W;
+    const sxx=fits.reduce((n,f)=>n+f.w*(f.x-mx)**2,0);
+    const spread=Math.max(...fits.map(f=>f.x))-Math.min(...fits.map(f=>f.x));
+    const b=fits.length>=2&&spread>width*0.2&&sxx>0?fits.reduce((n,f)=>n+f.w*(f.x-mx)*(f.d-md),0)/sxx:0;
+    return x=>clamp(md+b*(x-mx));
+  }
   function columns(words,width,lines){
     const header=findHeader(prepare(words),width);
     // Without a readable header the usual Morawa proportions are used.
     if(!header){
       const slopeAt=slopeFunction(lines,width,0);
-      return {slopeAt,headerY:-Infinity,deliveryStart:width*0.318,deliveryEnd:width*0.545,numberStart:width*0.6,numberEnd:width*0.675,found:false};
+      return {slopeAt,headerY:-Infinity,deliveryStart:width*0.318,deliveryEnd:width*0.545,numberStart:width*0.6,numberEnd:width*0.675,found:false,
+        drift:()=>0,yref:0,shiftX:x=>x,pageX:x=>x};
     }
     const slopeAt=slopeFunction(lines,width,headerSlope(header,width)),k=header.klasseX;
     const lieferung=header.lieferung?.x??k-width*0.22,lief=header.lief?.x??k+width*0.062,preis=header.preis?.x??k+width*0.183;
     const headerY=Math.max(...headerWords(header).map(w=>w.y-slopeAt(w.y)*((w.bbox.x0+w.bbox.x1)/2)+w.h*0.5));
-    return {slopeAt,headerY,deliveryStart:lieferung-width*0.012,deliveryEnd:k-width*0.006,numberStart:Math.max(k+width*0.045,lief-width*0.009),numberEnd:Math.min(preis-width*0.012,lief+width*0.066),found:true};
+    const layout={slopeAt,headerY,deliveryStart:lieferung-width*0.012,deliveryEnd:k-width*0.006,numberStart:Math.max(k+width*0.045,lief-width*0.009),numberEnd:Math.min(preis-width*0.014,lief+width*0.085),found:true};
+    const yref=header.klasse.y,drift=columnDrift(words,width,yref,layout);
+    return {...layout,drift,yref,
+      shiftX:(x,y)=>x-drift(x)*(y-yref),
+      pageX:(xd,y)=>xd+drift(xd)*(y-yref)};
   }
+
 
   // Dotted rules become ":" or "i", and the "26/01" reference number belongs to the customer.
   const junk=w=>/^[^A-Za-zÄÖÜäöü0-9()[\]{}]+$/.test(w.text)||/^[a-z]$/.test(w.text)||/^\d{2}\/\d{2}[.:;,]?$/.test(w.text);
@@ -210,12 +277,26 @@
   }
   const tidyCustomerLine=text=>clean(clean(text).replace(/^[^A-Za-zÄÖÜäöü0-9]+/,'').replace(/[—–-]+(?=K\s*N)/,' '));
 
-  function deliveryForBand(dWords,nWords,anchor,from,to,layout){
+  function deliveryForBand(dWords,nWords,anchor,from,to,layout,kWords=[]){
     const rows=group(dWords.filter(w=>w.yd>=from&&w.yd<to&&!junk(w)));
-    const labelled=rows.filter(r=>/[A-Za-zÄÖÜäöü]{3}/.test(rowText(r.words)));
+    // On rotated pages a table heading ("Lieferung") can fall into the first customer's band.
+    const labelled=rows.filter(r=>/[A-Za-zÄÖÜäöü]{3}/.test(rowText(r.words))&&!headingText(rowText(r.words)));
     const main=labelled.filter(r=>Math.abs(r.yd-anchor.yd)<=Math.max(r.h,anchor.h)*1.5).sort((a,b)=>Math.abs(a.yd-anchor.yd)-Math.abs(b.yd-anchor.yd))[0]||labelled[0];
-    const lineY=main?main.yd:anchor.yd,h=median((main||anchor).words.map(w=>w.h));
-    const cells={slope:layout.slopeAt(main?main.y:anchor.y),h,label:{x0:layout.deliveryStart,x1:layout.deliveryEnd,yd:lineY},number:{x0:layout.numberStart,x1:layout.numberEnd,yd:lineY}};
+    const h=median((main||anchor).words.map(w=>w.h));
+    // Bent paper: the row's own words (label and class value) give its real course,
+    // so the "lief." cell is cut along that line and not along the page average.
+    let slope=layout.slopeAt(main?main.y:anchor.y),lineY=main?main.yd:anchor.yd;
+    if(main){
+      const fit=[...main.words,...kWords.filter(w=>Math.abs(w.yd-main.yd)<=h*1.5)].map(w=>({x:(w.bbox.x0+w.bbox.x1)/2,y:w.y}));
+      const pairs=[];
+      for(let i=0;i<fit.length;i++)for(let j=i+1;j<fit.length;j++)if(Math.abs(fit[j].x-fit[i].x)>h*4)pairs.push((fit[j].y-fit[i].y)/(fit[j].x-fit[i].x));
+      const own=median(pairs);
+      if(own!==null&&Math.abs(own-slope)<=0.1){slope=own;lineY=median(fit.map(p=>p.y-own*p.x));}
+    }
+    const onRow=w=>Math.abs(w.y-(lineY+slope*(w.bbox.x0+w.bbox.x1)/2))<=Math.max(w.h,h)*0.9;
+    // The cell is cut where the leaning column actually is at this row.
+    const cell=(x0,x1)=>{const y=lineY+slope*(x0+x1)/2,px=x=>layout.pageX?layout.pageX(x,y):x;return {x0:px(x0),x1:px(x1),yd:lineY};};
+    const cells={slope,h,label:cell(layout.deliveryStart,layout.deliveryEnd),number:cell(layout.numberStart,layout.numberEnd)};
     if(!main)return {deliveryType:'',deliveryReview:missing,deliverySource:'',_cells:cells,_page:{label:'',number:null,confidence:0}};
     let label=rowText(main.words);const words=[...main.words];
     const next=rows[rows.indexOf(main)+1];
@@ -223,21 +304,23 @@
     if(labelParts(label).type==='collection'&&!collectionLetters(label).length&&next&&next.yd-main.yd<h*2.5&&/^(?:\d+\s*)?[([{]\s*[A-Za-z]\s*[)\]}]$/.test(rowText(next.words))){
       label+=' '+rowText(next.words);words.push(...next.words);
     }
-    const numberWords=nWords.filter(w=>Math.abs(w.yd-main.yd)<=Math.max(w.h,main.h)*0.9).sort((a,b)=>a.x-b.x);
-    const number=deliveredNumber(numberWords);
+    const numberWords=nWords.filter(w=>w.yd>=from-h&&w.yd<to&&onRow(w)).sort((a,b)=>a.x-b.x);
+    // Without the slash a lone number may be the returned one ("zur.", right half of the cell).
+    const leftHalf=w=>(w.xd-layout.numberStart)/Math.max(1,layout.numberEnd-layout.numberStart)<0.45;
+    const number=numberWords.some(w=>w.text.includes('/'))||numberWords.filter(w=>/\d/.test(w.text)).every(leftHalf)?deliveredNumber(numberWords):null;
     const companionNumbers=rows.filter(row=>row!==main&&/beh[aä]ltemappe/i.test(canonicalLabel(rowText(row.words))))
       .map(row=>deliveredNumber(nWords.filter(w=>w.yd>=from&&w.yd<to&&Math.abs(w.yd-row.yd)<=Math.max(w.h,row.h)*0.9).sort((a,b)=>a.x-b.x))).filter(Boolean);
     const source=[label,rowText(numberWords)].filter(Boolean).join(' | ');
     const parsed=readDelivery(label,{numbers:number?[number]:[],source,column:true});
     const confidence=Math.min(100,...[...words,...numberWords].map(w=>Number.isFinite(w.confidence)?w.confidence:100));
     if(!parsed.deliveryReview&&/\d/.test(parsed.deliveryType)&&numberWords.some(w=>Number.isFinite(w.confidence)&&w.confidence<55))parsed.deliveryReview='Liefermenge unsicher erkannt. Bitte am PDF prüfen.';
-    return {...parsed,_cells:cells,_page:{label,number,confidence,numberText:rowText(numberWords),companionNumbers}};
+    return {...parsed,_cells:cells,_page:{label,number,confidence,numberText:rowText(numberWords),companionNumbers,otherRows:labelled.length-1}};
   }
 
   function analyse(words,width,{parseStops,looksLikeStopHeader,parsePostal,normalizeLines},{lines}={}){
-    const layout=columns(words,width,lines),all=prepare(words,layout.slopeAt);
+    const layout=columns(words,width,lines),all=prepare(words,layout.slopeAt,layout.shiftX);
     const body=all.filter(w=>w.yd>layout.headerY);
-    const customer=group(body.filter(w=>w.x<layout.deliveryStart));
+    const customer=group(body.filter(w=>w.xd<layout.deliveryStart));
     const lineOf=row=>tidyCustomerLine(rowText(row.words));
     const anchors=customer.map((row,i)=>{const s=lineOf(row);return headerLine(s)||looksLikeStopHeader(s)?i:-1;}).filter(i=>i>=0);
     const bands=[];
@@ -254,11 +337,12 @@
   }
   function parsePage(words,width,parser,options={}){
     const {layout,body,bands}=analyse(words,width,parser,options);
-    const dWords=body.filter(w=>w.x>=layout.deliveryStart&&w.x<layout.deliveryEnd);
-    const nWords=body.filter(w=>w.x>=layout.numberStart&&w.x<layout.numberEnd);
+    const dWords=body.filter(w=>w.xd>=layout.deliveryStart&&w.xd<layout.deliveryEnd);
+    const nWords=body.filter(w=>w.xd>=layout.numberStart&&w.xd<layout.numberEnd);
+    const kWords=body.filter(w=>w.xd>=layout.deliveryEnd&&w.xd<layout.numberStart);
     const stops=[];
     for(const {parsed,first,from,to} of bands){
-      const delivery=parsed.length===1?deliveryForBand(dWords,nWords,first,from,to,layout):{deliveryType:'',deliveryReview:missing,deliverySource:''};
+      const delivery=parsed.length===1?deliveryForBand(dWords,nWords,first,from,to,layout,kWords):{deliveryType:'',deliveryReview:missing,deliverySource:''};
       stops.push(...parsed.map(stop=>({...stop,...delivery})));
     }
     return stops;
@@ -296,8 +380,8 @@
   // ----- second, targeted read of the two cells -----
   // Binarises a cell image and keeps only letter/digit-sized shapes whose centre lies in
   // the cell (`keep`): rule dots, long rules and the neighbouring lines are removed.
-  function clearNumberRules(pixels,width,height,charHeight=height/2.2,threshold=165,keep=null){
-    const visited=new Uint8Array(width*height),stack=[];
+  function clearNumberRules(pixels,width,height,charHeight=height/2.2,threshold=165,keep=null,keepSpecks=false){
+    const visited=new Uint8Array(width*height),stack=[],parts=[];
     for(let i=0;i<visited.length;i++){
       const gray=pixels[i*4]*0.3+pixels[i*4+1]*0.59+pixels[i*4+2]*0.11,value=gray<threshold?0:255;
       pixels[i*4]=pixels[i*4+1]=pixels[i*4+2]=value;pixels[i*4+3]=255;
@@ -314,22 +398,37 @@
           if(nx>=0&&nx<width&&ny>=0&&ny<height&&!visited[k]&&pixels[k*4]===0){visited[k]=1;stack.push(k);}
         }
       }
-      const w=x1-x0+1,h=y1-y0+1,cx=(x0+x1)/2,cy=(y0+y1)/2;
-      const dot=Math.max(w,h)<charHeight*0.2;
+      parts.push({component,x0,x1,y0,y1});
+    }
+    const small=c=>Math.max(c.x1-c.x0+1,c.y1-c.y0+1)<charHeight*0.2;
+    const letters=parts.filter(c=>!small(c));
+    // A faint letter can break into specks. In text cells (keepSpecks) specks right next to a
+    // letter-sized shape stay; in number cells they would fill the holes of bold digits.
+    const reach=charHeight*0.15;
+    const besideLetter=c=>letters.some(l=>c.x0<=l.x1+reach&&c.x1>=l.x0-reach&&c.y0<=l.y1+reach&&c.y1>=l.y0-reach);
+    for(const c of parts){
+      const w=c.x1-c.x0+1,h=c.y1-c.y0+1,cx=(c.x0+c.x1)/2,cy=(c.y0+c.y1)/2;
+      const dot=small(c)&&!(keepSpecks&&besideLetter(c));
       const rule=(h>charHeight*1.7&&w<charHeight*0.35)||(w>charHeight*2.5&&h<charHeight*0.25);
-      const cut=x0===0||y0===0||x1===width-1||y1===height-1;
-      const outside=keep&&(cx<keep.x0||cx>keep.x1||cy<keep.y0||cy>keep.y1);
-      if(dot||rule||cut||outside)for(const k of component)pixels[k*4]=pixels[k*4+1]=pixels[k*4+2]=255;
+      const cut=c.x0===0||c.y0===0||c.x1===width-1||c.y1===height-1;
+      // Curved labels: a letter counts as inside when a good part of it overlaps the band.
+      // Number cells stay strict, so digits of the line below cannot slip in.
+      const overlap=keep?Math.max(0,Math.min(c.y1,keep.y1)-Math.max(c.y0,keep.y0)+1)/h:1;
+      const outside=keep&&(cx<keep.x0||cx>keep.x1||((cy<keep.y0||cy>keep.y1)&&!(keepSpecks&&overlap>=0.45)));
+      if(dot||rule||cut||outside)for(const k of c.component)pixels[k*4]=pixels[k*4+1]=pixels[k*4+2]=255;
     }
     return pixels;
   }
+
   // Cell in page pixels; y is deskewed: page y = yd + slope * x. Variant 1 is a second,
   // independent look (other zoom and threshold) that counts as a separate vote.
   function cellBox(stop,kind,variant=0){
     const cells=stop._cells;if(!cells)return null;
     const cell=cells[kind],h=cells.h;
-    return {kind,variant,x0:cell.x0,x1:cell.x1,yd:cell.yd,half:h*0.62,margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
-      scale:variant?3:2,threshold:variant?135:165};
+    // number 2: taller strip for wavy rows.
+    const tall=kind==='number'&&variant===2;
+    return {kind,variant,x0:cell.x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
+      scale:variant===1&&kind==='number'?3:2,threshold:variant===1&&kind==='number'?135:165};
   }
   // Canvas size, page->cell transform (for setTransform) and the keep rectangle.
   function cellGeometry(box){
@@ -346,13 +445,22 @@
     ctx.fillStyle='#fff';ctx.fillRect(0,0,g.width,g.height);
     ctx.setTransform(...g.transform);ctx.drawImage(pageCanvas,0,0);ctx.setTransform(1,0,0,1,0,0);
     const image=ctx.getImageData(0,0,g.width,g.height);
-    if(box.kind!=='region')clearNumberRules(image.data,g.width,g.height,box.charHeight*box.scale,box.threshold,g.keep);
+    if(box.kind!=='region')clearNumberRules(image.data,g.width,g.height,box.charHeight*box.scale,box.threshold,g.keep,box.kind==='label');
     const out=doc.createElement('canvas');out.width=g.width+2*g.pad;out.height=g.height+2*g.pad;
     const octx=out.getContext('2d');octx.fillStyle='#fff';octx.fillRect(0,0,out.width,out.height);octx.putImageData(image,g.pad,g.pad);
     cell.width=0;cell.height=0;
     return out;
   }
   // readCell(box) must return {text, confidence} for the deskewed, cleaned cell image.
+  // A lone number from the tall strip counts only when it sits on the "lief." side of the
+  // cell and the customer has no second delivery line (e.g. Behaltemappe) with its own number.
+  function probeLoneNumber(read,box,stop){
+    if(!read||!deliveredNumber(read.text)||stop._page?.otherRows)return false;
+    const g=cellGeometry(box),digits=(read.words||[]).filter(w=>/\d/.test(w.text||'')&&w.bbox);
+    if(!digits.length)return false;
+    const span=g.keep.x1-g.keep.x0;
+    return digits.every(w=>((w.bbox.x0+w.bbox.x1)/2-g.pad-g.keep.x0)/span<0.45);
+  }
   async function refineStops(stops,readCell){
     for(const stop of stops){
       if(!stop._cells||(stop.deliveryType==='Lieferpaket'&&/\blieferpaket\b/i.test(stop._page?.label||'')))continue;
@@ -360,7 +468,16 @@
         const label=await readCell(cellBox(stop,'label'));
         const kind=labelParts(label?.text||'').type,pageKind=labelParts(stop._page?.label||'').type;
         const numbers=[];
-        if(kind==='collection'||pageKind==='collection')for(const variant of [0,1])numbers.push(await readCell(cellBox(stop,'number',variant)));
+        if(kind==='collection'||pageKind==='collection'){
+          for(const variant of [0,1])numbers.push(await readCell(cellBox(stop,'number',variant)));
+          // Wavy rows: the number can sit above or below the label's line. If neither read
+          // found a "lief./zur." pair, a taller strip is read; only a pair with "/" counts.
+          if(!numbers.some(read=>deliveredNumber(read?.text||''))){
+            const box=cellBox(stop,'number',2),probe=await readCell(box);
+            if(/\d\s*\//.test(probe?.text||''))numbers.push(probe);
+            else if(probeLoneNumber(probe,box,stop))numbers.push(probe);
+          }
+        }
         Object.assign(stop,mergeReads(stop,label,numbers));
       }catch(error){/* keep the page result */}
     }
@@ -430,7 +547,96 @@
     return merged;
   }
 
-  const api={reviewValue,readDelivery,rowsFromWords,pdfWords,columns,deliveredNumber,parsePage,clearNumberRules,cellBox,cellGeometry,renderCell,refineStops,retainPageEvidence,unreadRegions,mergeRegionWords,mergeReads,canonicalLabel};
+  // ----- straightening the customer column -----
+  // Photographed lists are bent: the tilt changes from the top to the bottom of the page
+  // and is often much stronger at the left edge. For horizontal strips of the column the
+  // tilt is measured from the ink itself (the shear that gives the sharpest row profile).
+  function columnShear(pixels,width,height,{xref=width,charHeight=height/60,maxSlope=0.08,stepSlope=0.002}={}){
+    const band=Math.max(40,Math.round(charHeight*7)),step=Math.max(20,Math.round(band/2)),points=[];
+    const dark=[];
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4;if(pixels[i]*0.3+pixels[i+1]*0.59+pixels[i+2]*0.11<150)dark.push(x,y);}
+    for(let top=0;top<height;top+=step){
+      const bottom=Math.min(height,top+band),pts=[];
+      for(let i=0;i<dark.length;i+=2)if(dark[i+1]>=top&&dark[i+1]<bottom)pts.push(dark[i],dark[i+1]);
+      if(pts.length<band*2){points.push({y:(top+bottom)/2,slope:null});continue;}
+      let best=0,bestScore=-1;
+      const hist=new Float64Array(bottom-top+Math.ceil(maxSlope*width*2)+4),off=Math.ceil(maxSlope*width)+2;
+      for(let s=-maxSlope;s<=maxSlope+1e-9;s+=stepSlope){
+        hist.fill(0);
+        for(let i=0;i<pts.length;i+=2)hist[Math.round(pts[i+1]-top-s*(pts[i]-xref))+off]++;
+        let score=0;for(let k=0;k<hist.length;k++)score+=hist[k]*hist[k];
+        if(score>bestScore+1e-9||(Math.abs(score-bestScore)<=1e-9&&Math.abs(s)<Math.abs(best))){bestScore=score;best=s;}
+      }
+      points.push({y:(top+bottom)/2,slope:best});
+      if(bottom===height)break;
+    }
+    // Empty strips take their neighbours' tilt; a single outlier is smoothed by a median of three.
+    const known=points.filter(p=>p.slope!==null);
+    if(!known.length)return [{y:0,slope:0}];
+    for(const p of points)if(p.slope===null)p.slope=known.reduce((a,b)=>Math.abs(b.y-p.y)<Math.abs(a.y-p.y)?b:a).slope;
+    return points.map((p,i)=>({y:p.y,slope:median([points[i-1],p,points[i+1]].filter(Boolean).map(q=>q.slope))}));
+  }
+  function shearAt(points,y){
+    if(y<=points[0].y)return points[0].slope;
+    for(let i=1;i<points.length;i++)if(y<=points[i].y){const a=points[i-1],b=points[i],t=(y-a.y)/(b.y-a.y);return a.slope+(b.slope-a.slope)*t;}
+    return points.at(-1).slope;
+  }
+  // Output pixel (u,v) shows the page pixel (u, v + shear(v)*(u - xref)); xref is kept in place.
+  function straightenColumn(pixels,width,height,points,xref=width){
+    const out=new Uint8ClampedArray(pixels.length).fill(255);
+    for(let v=0;v<height;v++){
+      const s=shearAt(points,v);
+      for(let u=0;u<width;u++){
+        const y=Math.round(v+s*(u-xref));
+        if(y<0||y>=height)continue;
+        const i=(v*width+u)*4,j=(y*width+u)*4;
+        out[i]=pixels[j];out[i+1]=pixels[j+1];out[i+2]=pixels[j+2];out[i+3]=255;
+      }
+    }
+    return out;
+  }
+  // Maps OCR words of the straightened column (column pixels, top at `top`) back to the page.
+  function straightenedWords(words,points,{left=0,top=0,xref}){
+    return words.filter(w=>clean(w.text)&&w.bbox).map(w=>{
+      const v0=w.bbox.y0,v1=w.bbox.y1,vc=(v0+v1)/2,s=shearAt(points,vc),dy=u=>s*(u-xref);
+      return {...w,lineX:left+xref,lineY:top+vc,
+        bbox:{x0:left+w.bbox.x0,x1:left+w.bbox.x1,y0:top+v0+Math.min(dy(w.bbox.x0),dy(w.bbox.x1)),y1:top+v1+Math.max(dy(w.bbox.x0),dy(w.bbox.x1))}};
+    });
+  }
+  // Customer column of a page image (RGBA, page width): everything right of the leaning
+  // column boundary is blanked, then the column is straightened strip by strip.
+  function straightColumnPixels(pagePixels,pageWidth,height,layout){
+    const width=Math.max(1,Math.min(pageWidth,Math.ceil(Math.max(layout.deliveryStart,
+      ...[0,height/2,height].map(y=>layout.pageX?layout.pageX(layout.deliveryStart,y):layout.deliveryStart)))));
+    const pixels=new Uint8ClampedArray(width*height*4);
+    for(let y=0;y<height;y++){
+      const edge=layout.pageX?layout.pageX(layout.deliveryStart,y):layout.deliveryStart;
+      for(let x=0;x<width;x++){
+        const i=(y*width+x)*4,j=(y*pageWidth+x)*4;
+        if(x<edge){pixels[i]=pagePixels[j];pixels[i+1]=pagePixels[j+1];pixels[i+2]=pagePixels[j+2];}
+        else pixels[i]=pixels[i+1]=pixels[i+2]=255;
+        pixels[i+3]=255;
+      }
+    }
+    const points=columnShear(pixels,width,height,{xref:width,charHeight:pageWidth/60});
+    return {pixels:straightenColumn(pixels,width,height,points,width),width,height,points,xref:width};
+  }
+  // Browser helper: straightened customer column of the rendered page as a canvas.
+  function renderStraightColumn(pageCanvas,layout,doc){
+    const page=pageCanvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,pageCanvas.width,pageCanvas.height);
+    const column=straightColumnPixels(page.data,pageCanvas.width,pageCanvas.height,layout);
+    const canvas=doc.createElement('canvas');canvas.width=column.width;canvas.height=column.height;
+    canvas.getContext('2d').putImageData(new ImageData(column.pixels,column.width,column.height),0,0);
+    return {canvas,points:column.points,xref:column.xref};
+  }
+  // Customer words come from the straightened read, everything else from the page read.
+  function mergeColumnWords(pageWords,columnWords,layout){
+    const xd=w=>{const y=(w.bbox.y0+w.bbox.y1)/2;return layout.shiftX?layout.shiftX(w.bbox.x0,y):w.bbox.x0;};
+    return [...pageWords.filter(w=>w.bbox&&xd(w)>=layout.deliveryStart),...columnWords.filter(w=>w.bbox&&xd(w)<layout.deliveryStart)];
+  }
+
+
+  const api={columnShear,shearAt,straightenColumn,straightenedWords,straightColumnPixels,renderStraightColumn,mergeColumnWords,reviewValue,readDelivery,rowsFromWords,pdfWords,columns,deliveredNumber,parsePage,clearNumberRules,cellBox,cellGeometry,renderCell,refineStops,retainPageEvidence,unreadRegions,mergeRegionWords,mergeReads,canonicalLabel};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.DeliveryImport=api;
 })(typeof window==='object'?window:globalThis);
