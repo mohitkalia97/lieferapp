@@ -201,7 +201,13 @@ test('a differing retaining-folder number warns but never supplies a missing col
   const stops=parse([...header(),...customer(1,60,'Kollektion 2 (A) COL','38/-'),word('Behaltemappe COL',380,96),word('35',680,96)]);
   const read={text:'38/-',confidence:90};
   const merged=delivery.mergeReads(stops[0],{text:'Kollektion 2 (A) COL',confidence:90},[read,read]);
-  assert.equal(merged.deliveryType,'Kollektion');assert.match(merged.deliveryReview,/Abweichende Nummern/);
+  // The pair "38/-" is certainly the main row: the number is shown, the difference is flagged.
+  assert.equal(merged.deliveryType,'Kollektion 38 A');assert.match(merged.deliveryReview,/Behaltemappe zeigt 35/);
+  // Without a pair-form read the differing Behaltemappe number still blocks the number.
+  const lone={text:'38',confidence:90};
+  const loneStop={_page:{label:'Kollektion 2 (A) COL',number:'38',numberText:'38',companionNumbers:['35'],confidence:90}};
+  const blocked=delivery.mergeReads(loneStop,{text:'Kollektion 2 (A) COL',confidence:90},[lone,lone]);
+  assert.equal(blocked.deliveryType,'Kollektion');assert.match(blocked.deliveryReview,/Abweichende Nummern/);
   const noNumber={_page:{label:'Kollektion 2 (A) COL',number:null,companionNumbers:['35'],confidence:90}};
   assert.equal(delivery.mergeReads(noNumber,{text:'Kollektion 2 (A) COL',confidence:90},[]).deliveryType,'Kollektion');
 });
@@ -281,11 +287,11 @@ test('wavy rows: a taller strip is read when the number is not on the label line
   await delivery.refineStops(stops,async box=>{
     asked.push(`${box.kind}${box.variant}`);
     if(box.kind==='label')return {text:'Kollektion 3 (B) COL',confidence:90};
-    if(box.variant<2)return {text:'',confidence:0};
+    if(box.variant<2||box.variant===3)return {text:'',confidence:0};
     const g=delivery.cellGeometry(box),x=g.pad+g.keep.x0+5;
     return {text:'38',confidence:95,words:[{text:'38',bbox:{x0:x,x1:x+20,y0:10,y1:30}}]};
   });
-  assert.deepEqual(asked,['label0','number0','number1','number2']);
+  assert.deepEqual(asked,['label0','number0','number1','number3','number2']);
   assert.equal(stops[0].deliveryType,'Kollektion 38 B');
   // The same lone number on the "zur." side, or with a second delivery line, is not accepted.
   const other=parse([...header(),...customer(1,60,'Kollektion 3 (B) COL'),word('Behaltemappe COL',380,96)]);
@@ -352,7 +358,7 @@ test('an unreadable curved label is read again along its line',async()=>{
   const asked=[];
   await delivery.refineStops(stops,async box=>{
     asked.push(`${box.kind}${box.variant}${box.follow?'f':''}`);
-    if(box.kind==='label')return box.follow?{text:'Classic Kollektion (P) COL',confidence:94}:{text:'Classic Kon) ktion (P) cot',confidence:57};
+    if(box.kind==='label')return box.follow?{text:'Classic Kollektion (P) COL',confidence:94}:{text:'Classic Ko',confidence:57};
     return {text:'41/ 40',confidence:80};
   });
   assert.deepEqual(asked.slice(0,2),['label0','label1f']);
@@ -365,13 +371,35 @@ test('a lone number next to a second delivery line is replaced by the pair from 
     asked.push(`${box.kind}${box.variant}:${box.psm}`);
     if(box.kind==='label')return {text:'Classic Kollektion (P) COL',confidence:94};
     if(box.variant<2)return {text:'41',confidence:95};   // the Behaltemappe line below
+    if(box.variant===3)return {text:'',confidence:0};
     return {text:'41/40 41',confidence:80,words:[
       {text:'41/',confidence:80,bbox:{x0:20,x1:50,y0:10,y1:30}},{text:'40',confidence:90,bbox:{x0:70,x1:90,y0:10,y1:30}},
       {text:'41',confidence:90,bbox:{x0:20,x1:40,y0:45,y1:65}}]};
   });
-  assert.deepEqual(asked,['label0:7','number0:7','number1:7','number2:6']);
+  assert.deepEqual(asked,['label0:7','number0:7','number1:7','number3:7','number2:6']);
   assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');
   // On the page read alone such a lone number is not taken when a second line exists.
   const page=parse([...header(),...customer(1,60,'Classic Kollektion (P) COL'),word('Behaltemappe COL',380,96),word('44',684,96)]);
   assert.equal(page[0].deliveryType,'Classic Kollektion');
+});
+
+test('"Kollektion" broken into fragments on a curved line is still a collection',()=>{
+  const read=(label,n)=>delivery.readDelivery(label,{numbers:n?[n]:[],column:true}).deliveryType;
+  assert.equal(read('Classic Kon) ktion (P) cot','41'),'Classic Kollektion 41 P');
+  assert.equal(read('Classic Koll ektion (P) COL','41'),'Classic Kollektion 41 P');
+  assert.equal(read('Classic K ll ktion (P) COL','41'),'Classic Kollektion 41 P');
+  // without the bracketed letter a lookalike is not turned into a collection
+  assert.equal(read('Kollergasse 63'),'Kollergasse');
+});
+test('on a curved row the number is read by following the row from the label to "lief."',async()=>{
+  const stops=parse([...header(),...customer(1,60,'Classic Kollektion (P) COL'),word('Behaltemappe COL',380,96)]);
+  const asked=[];
+  await delivery.refineStops(stops,async box=>{
+    asked.push(`${box.kind}${box.variant}`);
+    if(box.kind==='label')return {text:'Classic Kollektion (P) COL',confidence:94};
+    if(box.variant===3){assert.ok(box.follow);assert.ok(box.x0<box.keepX0,'the strip starts at the label');return {text:'41 40',confidence:96};}
+    return {text:'41',confidence:95};
+  });
+  assert.deepEqual(asked,['label0','number0','number1','number3']);
+  assert.equal(stops[0].deliveryType,'Classic Kollektion 41 P');assert.equal(stops[0].deliveryReview,'');
 });

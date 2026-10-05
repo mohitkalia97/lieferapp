@@ -45,6 +45,19 @@
     let text=clean(label).split(' ').map(canonicalWord).join(' ');
     // "Wunsch Kollektion", "Wunach Kollektion" -> "Wunsch-Kollektion"
     text=text.replace(/(\S+)[\s-]+Kollektion\b/g,(all,before)=>distance(core(before),'wunsch')<=2&&core(before).length>=5?'Wunsch-Kollektion':all);
+    // "Kollektion" broken by OCR on a curved line ("Kon) ktion", "Koll ektion", "K ll ktion"):
+    // up to three neighbouring fragments that together come close to "Kollektion" count,
+    // but only when a bracketed collection letter like "(P)" follows.
+    if(!/Kollektion/.test(text)){
+      const tokens=text.split(' ');
+      search:for(let i=0;i<tokens.length;i++)for(let n=3;n>=1;n--){
+        const part=tokens.slice(i,i+n),c=core(part.join(''));
+        if(i+n>tokens.length||c.length<6||c.length>13||!/^k/.test(c))continue;
+        if(distance(c,'kollektion')>3)continue;
+        if(!collectionLetters(tokens.slice(i+n).join(' ')).length)continue;
+        tokens.splice(i,n,'Kollektion');text=tokens.join(' ');break search;
+      }
+    }
     // "Lieferpaket lt. GesamtLS" split or garbled by OCR, e.g. "Li ferpaket"
     if(!/Lieferpaket|Kollektion/.test(text)&&(containsApprox(core(text),'lieferpaket',2)||containsApprox(core(text),'gesamtls',1)))text='Lieferpaket';
     return text;
@@ -469,10 +482,16 @@
   function cellBox(stop,kind,variant=0){
     const cells=stop._cells;if(!cells)return null;
     const cell=cells[kind],h=cells.h;
-    // number 2: taller strip for wavy rows; label 1: taller strip whose text line is followed.
-    const tall=(kind==='number'&&variant===2)||(kind==='label'&&variant===1);
-    // psm: Tesseract page segmentation; the tall number strip may hold two lines (block mode).
-    return {kind,variant,psm:kind==='number'&&variant===2?'6':'7',follow:kind==='label'&&variant===1,x0:cell.x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
+    // label 1: taller strip whose text line is followed.
+    // number 2: taller strip for wavy rows (block mode, may hold two lines).
+    // number 3: the row is followed from the start of the label across to "lief."; only the
+    //           "lief." part is kept, so a curved row cannot slip onto the line below.
+    const along=kind==='number'&&variant===3;
+    const tall=(kind==='number'&&(variant===2||along))||(kind==='label'&&variant===1);
+    const x0=along?cells.label.x0:cell.x0;
+    return {kind,variant,psm:kind==='number'&&variant===2?'6':'7',follow:(kind==='label'&&variant===1)||along,
+      keepX0:along?cell.x0:null,keepX1:along?cell.x1:null,
+      x0,x1:cell.x1,yd:cell.yd,half:h*(tall?1.5:0.62),margin:h*0.6,pad:h*0.4,slope:cells.slope,charHeight:h,
       scale:variant===1&&kind==='number'?3:2,threshold:variant===1&&kind==='number'?135:165};
   }
   // Canvas size, page->cell transform (for setTransform) and the keep rectangle.
@@ -481,7 +500,8 @@
     return {width:Math.round((box.x1-box.x0+2*m)*s),height:Math.round((2*box.half+2*m)*s),pad:Math.round(box.pad*s),
       transform:[s,-box.slope*s,0,s,-(box.x0-m)*s,(box.half+m-box.yd)*s],
       // A followed line is moved to the middle; only a normal-height band around it is kept.
-      keep:box.follow?{x0:m*s,x1:(m+box.x1-box.x0)*s,y0:(m+box.half-box.charHeight*0.62)*s,y1:(m+box.half+box.charHeight*0.62)*s}
+      keep:box.follow?{x0:(m+(Number.isFinite(box.keepX0)?box.keepX0-box.x0:0))*s,x1:(m+(Number.isFinite(box.keepX1)?box.keepX1:box.x1)-box.x0)*s,
+          y0:(m+box.half-box.charHeight*0.62)*s,y1:(m+box.half+box.charHeight*0.62)*s}
         :{x0:m*s,x1:(m+box.x1-box.x0)*s,y0:m*s,y1:(m+2*box.half)*s}};
   }
   // Browser helper: cuts, deskews and cleans one cell of the rendered page.
@@ -509,10 +529,13 @@
     const span=g.keep.x1-g.keep.x0;
     return digits.every(w=>((w.bbox.x0+w.bbox.x1)/2-g.pad-g.keep.x0)/span<0.45);
   }
+  // "lief. / zur." as printed on the main row: "41/ 40", "35/ -", or "41 40" with a lost slash.
+  // A lone number is not a pair: it may be the second delivery line (e.g. Behaltemappe).
+  const isPair=text=>{const t=clean(text);return /\d\s*\/|\d\s*-+\s*$/.test(t)||/^\D{0,2}\d{1,2}\s+\d{1,2}\s*\*?\D{0,2}$/.test(t);};
   // The one line of a multi-line read that holds a "lief./zur." pair, or null.
   function pairLine(read){
     if(!read)return null;
-    const pair=text=>/\d\s*\/|\d\s*-+\s*$/.test(clean(text))&&deliveredNumber(text);
+    const pair=text=>isPair(text)&&deliveredNumber(text);
     const words=(read.words||[]).filter(w=>w.bbox&&clean(w.text));
     let lines;
     if(words.length){
@@ -526,11 +549,13 @@
       if(!stop._cells||(stop.deliveryType==='Lieferpaket'&&/\blieferpaket\b/i.test(stop._page?.label||'')))continue;
       try{
         let label=await readCell(cellBox(stop,'label'));
-        // Curved label that neither read recognises: read it once more along its own line.
-        const known=read=>{const parts=labelParts(read?.text||'');return parts.type!=='other'||(!!parts.title&&read.confidence>=75);};
-        if(!known(label)&&!known({text:stop._page?.label,confidence:stop._page?.confidence})){
+        // Curved labels: unless one read already shows Lieferpaket or a Kollektion, the label
+        // is read once more along its own line. A recognised kind wins; otherwise the more
+        // confident plain text is kept (e.g. "Punktemappe").
+        const kindOf=read=>labelParts(read?.text||'').type;
+        if(kindOf(label)==='other'&&kindOf({text:stop._page?.label})==='other'){
           const followed=await readCell(cellBox(stop,'label',1));
-          if(known(followed))label=followed;
+          if(kindOf(followed)!=='other'||(labelParts(followed?.text||'').title&&(followed.confidence||0)>(label?.confidence||0)))label=followed;
         }
         const kind=labelParts(label?.text||'').type,pageKind=labelParts(stop._page?.label||'').type;
         const numbers=[];
@@ -541,12 +566,19 @@
           // and the cell may then hit a neighbouring line (e.g. the lone "41" of a Behaltemappe).
           // The main row always shows a pair ("41/ 40", "35/ -"); without one a taller strip is
           // read, and a pair found there replaces the lone numbers.
-          const pair=read=>/\d\s*\/|\d\s*-+\s*$/.test(clean(read?.text));
+          const pair=read=>isPair(read?.text);
           if(!numbers.some(pair)){
+            // First follow the row from the label across to "lief." (stays on a curved row),
+            const along=await readCell(cellBox(stop,'number',3));
+            const alongLine=pairLine(along);
+            if(alongLine){numbers.splice(0,numbers.length,alongLine);}
+            else{
+            // then read a taller strip and pick the line with the pair.
             const box=cellBox(stop,'number',2),probe=await readCell(box);
             const line=pairLine(probe);
             if(line)numbers.splice(0,numbers.length,line);
             else if(!numbers.some(read=>deliveredNumber(read?.text||''))&&probeLoneNumber(probe,box,stop))numbers.push(probe);
+            }
           }
         }
         Object.assign(stop,mergeReads(stop,label,numbers));
@@ -595,9 +627,9 @@
     }
     // Votes for the "lief." number: page read plus the independent cell reads.
     const votes=[];
-    if(page.number)votes.push({value:page.number,confidence:page.confidence});
-    if(stop._originalPage?.number&&labelParts(stop._originalPage.label).type==='collection')votes.push({value:stop._originalPage.number,confidence:stop._originalPage.confidence});
-    for(const read of numberReads){const value=read?deliveredNumber(read.text):null;if(value)votes.push({value,confidence:read.confidence});}
+    if(page.number)votes.push({value:page.number,confidence:page.confidence,pair:isPair(page.numberText)});
+    if(stop._originalPage?.number&&labelParts(stop._originalPage.label).type==='collection')votes.push({value:stop._originalPage.number,confidence:stop._originalPage.confidence,pair:isPair(stop._originalPage.numberText)});
+    for(const read of numberReads){const value=read?deliveredNumber(read.text):null;if(value)votes.push({value,confidence:read.confidence,pair:isPair(read.text)});}
     const counts=new Map();for(const v of votes)counts.set(v.value,(counts.get(v.value)||0)+1);
     const ranked=[...counts.entries()].sort((x,y)=>y[1]-x[1]);
     let number=null,note='';
@@ -610,12 +642,18 @@
       if(ranked[0][1]===1&&Number.isFinite(votes[0].confidence)&&votes[0].confidence<55)note='Liefermenge unsicher erkannt. Bitte am PDF prüfen.';
     }
     // A retaining-folder row is only a cross-check, never a source of a missing collection number.
+    // A number read as a "lief. / zur." pair certainly comes from the main row: a differing
+    // (possibly misread) Behaltemappe number then only adds a check note.
     const companions=[...(page.companionNumbers||[]),...(stop._originalPage?.companionNumbers||[])];
-    if(number&&companions.some(value=>value!==number)){
+    const fromPair=number&&votes.some(v=>v.value===number&&v.pair);
+    const other=number&&companions.find(value=>value!==number);
+    if(other&&fromPair){
+      if(!note)note=`Behaltemappe zeigt ${other}. Liefermenge am PDF prüfen.`;
+    }else if(other){
       number=null;note='Abweichende Nummern im Kundenblock. Kollektionsnummer am PDF prüfen.';
     }
     const merged=readDelivery(label,{numbers:number?[number]:[],source,column:true});
-    if(note&&(ranked.length>1||!number||!merged.deliveryReview))merged.deliveryReview=note;
+    if(note&&(ranked.length>1||!number||!merged.deliveryReview||other))merged.deliveryReview=note;
     return merged;
   }
 

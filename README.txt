@@ -124,3 +124,12 @@ V5.13:
   ihrer Zeile nachverfolgt und gerade gelesen.
 - Steht bei einer Kollektion eine zweite Zeile (z.B. Behaltemappe) darunter, wird die
   Liefermenge nur aus dem Paar "lief. / zur." übernommen, nicht aus der Zahl darunter.
+
+V5.14:
+- Gebogene Kollektionszeilen (z.B. Mocca Lounge "Classic Kollektion (P) COL"):
+  Zerrissene Wörter wie "Kon) ktion" gelten als "Kollektion", wenn ein Buchstabe in
+  Klammern folgt. Die Liefermenge wird gelesen, indem die Zeile vom Lieferart-Text
+  bis "lief." verfolgt wird, damit nicht die Behaltemappe-Zeile darunter gelesen wird.
+- "41 40" (Schrägstrich nicht erkannt) zählt als Paar "lief. / zur.".
+- Weicht die Behaltemappe-Nummer von einem sicher gelesenen Paar ab, wird die
+  Liefermenge angezeigt und nur zur Prüfung markiert.
