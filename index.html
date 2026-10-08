@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#111111">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="manifest" href="manifest.webmanifest?v=5.15">
+  <link rel="manifest" href="manifest.webmanifest?v=5.16">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=5.15">
+  <link rel="stylesheet" href="style.css?v=5.16">
   <title>Kalia Route App</title>
 </head>
 <body>
@@ -129,6 +129,15 @@
       <button id="notDelivered" class="notDelivered">✕ Nicht zugestellt</button>
       <button id="later" class="secondary">↷ Später – ans Ende verschieben</button>
 
+      <div class="autoNav" role="group" aria-labelledby="autoNavLabel">
+        <span id="autoNavLabel">Danach automatisch öffnen</span>
+        <div class="segmented">
+          <button type="button" data-auto-nav="waze" aria-pressed="false">Waze</button>
+          <button type="button" data-auto-nav="google" aria-pressed="false">Google Maps</button>
+          <button type="button" data-auto-nav="off" aria-pressed="false">Aus</button>
+        </div>
+      </div>
+
       <details class="noteBox" id="noteDetails">
         <summary>Notiz zu diesem Kunden</summary>
         <textarea id="stopNote" placeholder="z. B. Hintereingang, Paket in Postkasten, Ansprechpartner …"></textarea>
@@ -219,10 +228,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="routing.js?v=5.15"></script>
-<script src="route-map.js?v=5.15"></script>
-<script src="delivery-import.js?v=5.15"></script>
-<script src="app.js?v=5.15"></script>
-<script src="optimizer-ui.js?v=5.15"></script>
+<script src="routing.js?v=5.16"></script>
+<script src="route-map.js?v=5.16"></script>
+<script src="delivery-import.js?v=5.16"></script>
+<script src="app.js?v=5.16"></script>
+<script src="optimizer-ui.js?v=5.16"></script>
 </body>
 </html>

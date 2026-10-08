@@ -140,3 +140,11 @@ V5.15:
 - Unsichere Liefermengen werden ein zweites Mal unabhängig gelesen; stimmen beide
   überein, entfällt der Hinweis "Liefermenge unsicher".
 - Ein einzelner Buchstabe hinter dem Ort (z.B. "2020 Hollabrunn P") wird entfernt.
+
+V5.16 Navigation ohne Extraschritt:
+- Nach "Zugestellt & Weiter" (und "Nicht zugestellt") öffnet sich sofort Waze mit
+  dem nächsten offenen Stopp. Der Knopf zeigt das an: "Zugestellt & Weiter mit Waze".
+- Unter "Danach automatisch öffnen" kann stattdessen Google Maps oder "Aus" gewählt
+  werden; die Wahl bleibt auf dem Gerät gespeichert.
+- Die Knöpfe "Waze" und "Google Maps" zum manuellen Öffnen bleiben unverändert.
+- Nach dem letzten offenen Stopp wird keine Navigation geöffnet.

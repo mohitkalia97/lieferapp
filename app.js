@@ -19,6 +19,21 @@ function now(){return new Date().toISOString();}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 function fullAddress(s){return [s.address,s.postal].filter(Boolean).join(', ');}
 function googleQuery(s){return [s.name,s.address,s.postal].filter(Boolean).join(', ');}
+function navUrl(app,s){
+  return app==='google'?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(googleQuery(s))}`
+    :`https://waze.com/ul?q=${encodeURIComponent(fullAddress(s))}&navigate=yes`;
+}
+// Which app opens on its own after "Zugestellt & Weiter" / "Nicht zugestellt": waze, google or off.
+let autoNav='waze';
+const AUTO_NAV_LABEL={waze:'Waze',google:'Google Maps'};
+function renderAutoNav(){
+  document.querySelectorAll('[data-auto-nav]').forEach(b=>{const on=b.dataset.autoNav===autoNav;b.classList.toggle('active',on);b.setAttribute('aria-pressed',on?'true':'false');});
+  $('done').textContent=autoNav==='off'?'✓ Zugestellt & Weiter':`✓ Zugestellt & Weiter mit ${AUTO_NAV_LABEL[autoNav]}`;
+}
+async function loadAutoNav(){
+  try{const saved=await getMeta('autoNav');if(['waze','google','off'].includes(saved))autoNav=saved;}catch{}
+  renderAutoNav();
+}
 function stopTemplate(s={}){return {id:s.id||uid(),name:s.name||'',address:s.address||'',postal:s.postal||'',deliveryType:typeof s.deliveryType==='string'?s.deliveryType:'',deliveryReview:typeof s.deliveryReview==='string'?s.deliveryReview:'',deliverySource:typeof s.deliverySource==='string'?s.deliverySource:'',note:s.note||'',status:s.status||'pending',completedAt:s.completedAt||null,needsReview:!!s.needsReview};}
 function deliveryLabel(stop){return stop.deliveryType||'Nicht angegeben';}
 function normalizeTour(t){
@@ -208,9 +223,11 @@ function openEditStop(index,returnTo='route',mode='edit'){
   $('editDeliveryType').value=s.deliveryType||'';
 }
 
-async function advanceAfterStatus(status){
+async function advanceAfterStatus(status,{navigate=false}={}){
   const i=currentTour.currentIndex,s=currentTour.stops[i];s.status=status;s.completedAt=now();
   const next=nextPendingIndex(currentTour,i+1);currentTour.currentIndex=next>=0?next:i;await saveCurrent();renderRoute();
+  // One step less: the navigation app opens right away for the next open stop.
+  if(navigate&&autoNav!=='off'&&next>=0)window.location.href=navUrl(autoNav,currentTour.stops[next]);
 }
 
 function setImportProgress(percent,text){$('importProgressWrap').classList.remove('hidden');$('importProgress').value=Math.max(0,Math.min(100,percent));$('importProgressText').textContent=text;}
@@ -382,10 +399,11 @@ $('runImport').onclick=async()=>{
 $('saveImported').onclick=async()=>{const stops=importedStops.map(stopTemplate).filter(s=>s.name||s.address||s.postal);if(!stops.length)return alert('Keine gültigen Stopps vorhanden.');const name=$('importTourName').value.trim()||`Import ${new Date().toLocaleDateString('de-AT')}`;currentTour=normalizeTour({name,source:'import',stops});importedStops=[];await saveCurrent();renderRoute();};
 $('clearImport').onclick=()=>{importedStops=[];$('importResult').classList.add('hidden');$('importProgressWrap').classList.add('hidden');$('importFile').value='';$('importFileName').textContent='Noch keine Datei ausgewählt';};
 
-$('waze').onclick=()=>{const s=currentTour.stops[currentTour.currentIndex];window.location.href=`https://waze.com/ul?q=${encodeURIComponent(fullAddress(s))}&navigate=yes`;};
-$('google').onclick=()=>{const s=currentTour.stops[currentTour.currentIndex];window.location.href=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(googleQuery(s))}`;};
-$('done').onclick=()=>advanceAfterStatus('done');
-$('notDelivered').onclick=()=>advanceAfterStatus('not_delivered');
+$('waze').onclick=()=>{window.location.href=navUrl('waze',currentTour.stops[currentTour.currentIndex]);};
+$('google').onclick=()=>{window.location.href=navUrl('google',currentTour.stops[currentTour.currentIndex]);};
+$('done').onclick=()=>advanceAfterStatus('done',{navigate:true});
+$('notDelivered').onclick=()=>advanceAfterStatus('not_delivered',{navigate:true});
+document.querySelectorAll('[data-auto-nav]').forEach(b=>b.onclick=async()=>{autoNav=b.dataset.autoNav;renderAutoNav();try{await setMeta('autoNav',autoNav);}catch{}});
 $('later').onclick=async()=>{const i=currentTour.currentIndex,s=currentTour.stops.splice(i,1)[0];s.status='later';currentTour.stops.push(s);currentTour.currentIndex=Math.min(i,currentTour.stops.length-1);await saveCurrent();renderRoute();};
 $('previousStop').onclick=async()=>{if(currentTour.currentIndex>0){currentTour.currentIndex--;await saveCurrent();renderRoute();}};
 $('stopNote').oninput=async()=>{const s=currentTour.stops[currentTour.currentIndex];s.note=$('stopNote').value;await saveCurrent();};
@@ -405,7 +423,7 @@ $('restoreFile').onchange=async()=>{const f=$('restoreFile').files[0];if(!f)retu
 $('exportCsv').onclick=()=>{if(!currentTour)return alert('Keine aktive Tour.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const rows=[['Nr','Kunde','Adresse','PLZ Ort','Lieferart','Status','Notiz'],...currentTour.stops.map((s,i)=>[i+1,s.name,s.address,s.postal,s.deliveryType,s.status,s.note])];downloadBlob(`${currentTour.name.replace(/[^a-z0-9äöüß_-]+/gi,'_')}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.map(r=>r.map(q).join(';')).join('\n'));};
 
 async function init(){
-  try{db=await openDB();await migrateV4();await renderHome();}
+  try{db=await openDB();await migrateV4();await loadAutoNav();await renderHome();}
   catch(e){console.error(e);alert('Lokaler Speicher konnte nicht geöffnet werden. Bitte Safari/Browser neu starten.');}
   if('serviceWorker'in navigator){
     const wasControlled=!!navigator.serviceWorker.controller;
